@@ -176,7 +176,8 @@ class OBDScanner:
                 joined = " ".join(lines).upper()
 
                 # If it doesn't look like an error, accept it
-                if not any(err in joined for err in ["NO DATA", "UNABLE TO CONNECT", "ERROR", "?"]):
+                if not any(err in joined for err in ["NO DATA", "UNABLE TO CONNECT", "ERROR", "STOPPED", "BUS", "CAN ERROR", "?", "BUFFER FULL"]):
+
                     return lines
 
             except DeviceDisconnectedError:

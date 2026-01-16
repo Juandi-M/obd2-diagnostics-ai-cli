@@ -143,7 +143,8 @@ class ELM327:
                 try:
                     lines = self.send_raw_lines("0100", timeout=max(self.timeout, 2.0))
                     # heuristic: a CAN header is usually 3 hex chars like 7E8/7E0/7E9...
-                    looks_like_header = any(re.match(r"^[0-9A-F]{3}\s", ln.strip().upper()) for ln in lines)
+                    looks_like_header = any(re.match(r"^[0-9A-F]{3,8}\s", ln.strip().upper()) for ln in lines)
+
                     if not looks_like_header:
                         # Fall back: treat as headers_off to avoid mis-parsing
                         self.headers_on = False
