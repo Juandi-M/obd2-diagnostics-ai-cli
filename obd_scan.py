@@ -1,218 +1,297 @@
 #!/usr/bin/env python3
 """
-Jeep OBD-II Scanner
-===================
-Open source vehicle diagnostic tool.
+OBD-II Scanner
+==============
+Open source vehicle diagnostic tool with interactive menu.
 
 Usage:
-    python3 jeep_scan.py --scan                  # Full diagnostic scan
-    python3 jeep_scan.py --monitor               # Continuous telemetry (Ctrl+C to stop)
-    python3 jeep_scan.py --monitor --log         # Monitor + save to CSV
-    python3 jeep_scan.py --freeze                # Read freeze frame data
-    python3 jeep_scan.py --readiness             # Check readiness monitors
-    python3 jeep_scan.py --codes                 # Read DTCs only
-    python3 jeep_scan.py --lookup P0118          # Look up a code
+    python3 obd_scan.py              # Interactive mode (recommended)
+    python3 obd_scan.py --demo       # Demo mode without hardware
 """
 
-import argparse
 import signal
 import sys
-import time
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import Optional, List
+import os
+from typing import Optional, Dict, List
 
 from obd import OBDScanner, DTCDatabase, ELM327
 from obd.logger import SessionLogger
+from obd.utils import cr_timestamp, cr_time_only, VERSION, APP_NAME, cr_now, CR_TZ
 
-# Costa Rica timezone
-CR_TZ = timezone(timedelta(hours=-6))
-
-# Global flag for stopping monitor mode
+# Global state
 _stop_monitoring = False
+_scanner: Optional[OBDScanner] = None
+_dtc_db: Optional[DTCDatabase] = None
+_current_manufacturer: str = "generic"
+_log_format: str = "csv"
+_monitor_interval: float = 1.0
 
 
 def signal_handler(sig, frame):
     """Handle Ctrl+C gracefully."""
     global _stop_monitoring
     _stop_monitoring = True
-    print("\n\n⏹️  Stopping monitor...")
+    print("\n\n⏹️  Stopping...")
 
 
-def cr_timestamp() -> str:
-    """Return current Costa Rica time (UTC-6) formatted."""
-    return datetime.now(CR_TZ).strftime("%Y-%m-%d %H:%M:%S")
+def clear_screen():
+    """Clear terminal screen."""
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 
-def print_header(title: str) -> None:
+def press_enter():
+    """Wait for user to press Enter."""
+    input("\n  Press Enter to continue...")
+
+
+# =============================================================================
+# Display Helpers
+# =============================================================================
+
+def print_header(title: str):
     print("\n" + "=" * 60)
     print(f"  {title}")
     print("=" * 60)
 
 
-def print_subheader(title: str) -> None:
+def print_subheader(title: str):
     print("\n" + "-" * 40)
     print(f"  {title}")
     print("-" * 40)
 
 
+def print_menu(title: str, options: List[tuple]):
+    """Print a menu with numbered options."""
+    print("\n" + "╔" + "═" * 58 + "╗")
+    print(f"║  {title:<55} ║")
+    print("╠" + "═" * 58 + "╣")
+    
+    for num, text in options:
+        print(f"║  {num}. {text:<53} ║")
+    
+    print("╚" + "═" * 58 + "╝")
+
+
+def print_status():
+    """Print current connection status."""
+    global _scanner, _current_manufacturer
+    
+    connected = _scanner and _scanner.is_connected
+    status = "🟢 Connected" if connected else "🔴 Disconnected"
+    mfr = _current_manufacturer.capitalize()
+    
+    print(f"\n  Status: {status} | Vehicle: {mfr} | Format: {_log_format.upper()}")
+
+
 # =============================================================================
-# Command Handlers
+# Menu Actions
 # =============================================================================
 
-def run_full_scan(scanner: OBDScanner):
-    """Full diagnostic scan with DTCs, readiness, and live data."""
-    print_header("JEEP PATRIOT DIAGNOSTIC REPORT")
-    print(f"  🕐 Report Time: {cr_timestamp()}")
+def action_connect():
+    """Connect to vehicle."""
+    global _scanner
+    
+    print_header("CONNECT TO VEHICLE")
+    print(f"  Time: {cr_timestamp()}")
+    
+    if _scanner and _scanner.is_connected:
+        print("\n  ⚠️  Already connected!")
+        confirm = input("  Disconnect and reconnect? (y/n): ").strip().lower()
+        if confirm != 'y':
+            return
+        _scanner.disconnect()
+    
+    # Initialize scanner if needed
+    if not _scanner:
+        _scanner = OBDScanner()
+    
+    print("\n🔍 Searching for OBD adapter...")
+    
+    ports = ELM327.find_ports()
+    if not ports:
+        print("\n  ❌ No USB serial ports found!")
+        print("  💡 Make sure your ELM327 is plugged in.")
+        return
+    
+    print(f"  Found {len(ports)} port(s)")
+    
+    for port in ports:
+        try:
+            print(f"\n  Trying {port}...")
+            _scanner.elm.port = port
+            _scanner.connect()
+            print(f"  ✅ Connected on {port}")
+            
+            # Show vehicle info
+            info = _scanner.get_vehicle_info()
+            print(f"\n  ELM327: {info.get('elm_version', 'unknown')}")
+            print(f"  Protocol: {info.get('protocol', 'unknown')}")
+            print(f"  Check Engine: {'🔴 ON' if info.get('mil_on') == 'Yes' else '🟢 OFF'}")
+            print(f"  DTC Count: {info.get('dtc_count', '?')}")
+            return
+            
+        except Exception as e:
+            print(f"  ❌ Failed: {e}")
+            try:
+                _scanner.disconnect()
+            except:
+                pass
+    
+    print("\n  ❌ Could not connect to any vehicle.")
+    print("  💡 Tips:")
+    print("     - Turn ignition to ON")
+    print("     - Check OBD port connection")
+    print("     - Try with engine running")
 
+
+def action_disconnect():
+    """Disconnect from vehicle."""
+    global _scanner
+    
+    if not _scanner or not _scanner.is_connected:
+        print("\n  ⚠️  Not connected.")
+        return
+    
+    _scanner.disconnect()
+    print(f"\n  🔌 Disconnected at {cr_timestamp()}")
+
+
+def action_full_scan():
+    """Run full diagnostic scan."""
+    global _scanner, _dtc_db
+    
+    if not _scanner or not _scanner.is_connected:
+        print("\n  ❌ Not connected! Connect first (option 1).")
+        return
+    
+    print_header("FULL DIAGNOSTIC SCAN")
+    print(f"  🕐 Time: {cr_timestamp()}")
+    
     # Vehicle info
     print_subheader("VEHICLE CONNECTION")
-    info = scanner.get_vehicle_info()
-    print(f"  ELM327 Version: {info.get('elm_version', 'unknown')}")
+    info = _scanner.get_vehicle_info()
+    print(f"  ELM327: {info.get('elm_version', 'unknown')}")
     print(f"  Protocol: {info.get('protocol', 'unknown')}")
     print(f"  MIL (Check Engine): {info.get('mil_on', 'unknown')}")
     print(f"  DTC Count: {info.get('dtc_count', 'unknown')}")
-
+    
     # DTCs
     print_subheader("DIAGNOSTIC TROUBLE CODES")
-    dtcs = scanner.read_dtcs()
-
+    dtcs = _scanner.read_dtcs()
+    
     if dtcs:
         for dtc in dtcs:
-            status_emoji = "🚨" if dtc.status == "stored" else "⚠️"
-            status_text = f" ({dtc.status})" if dtc.status != "stored" else ""
-            print(f"\n  {status_emoji} {dtc.code}{status_text}")
+            emoji = "🚨" if dtc.status == "stored" else "⚠️"
+            status = f" ({dtc.status})" if dtc.status != "stored" else ""
+            print(f"\n  {emoji} {dtc.code}{status}")
             print(f"     └─ {dtc.description}")
-            print(f"     └─ Read at: {dtc.timestamp_str}")
     else:
         print("\n  ✅ No trouble codes stored")
-
-    # Readiness monitors
+    
+    # Readiness
     print_subheader("READINESS MONITORS")
-    readiness = scanner.read_readiness()
+    readiness = _scanner.read_readiness()
     
     if readiness:
-        complete_count = 0
-        incomplete_count = 0
-        
+        complete = incomplete = 0
         for name, status in readiness.items():
             if name == "MIL (Check Engine Light)":
-                continue  # Already shown above
-            
+                continue
             if not status.available:
                 emoji = "➖"
             elif status.complete:
                 emoji = "✅"
-                complete_count += 1
+                complete += 1
             else:
                 emoji = "❌"
-                incomplete_count += 1
-            
+                incomplete += 1
             print(f"  {emoji} {name}: {status.status_str}")
-        
-        print(f"\n  Summary: {complete_count} complete, {incomplete_count} incomplete")
-    else:
-        print("\n  ❌ Unable to read readiness monitors")
-
+        print(f"\n  Summary: {complete} complete, {incomplete} incomplete")
+    
     # Live data
     print_subheader("LIVE SENSOR DATA")
-    print(f"  Timestamp: {cr_timestamp()}")
-    readings = scanner.read_live_data()
-
+    readings = _scanner.read_live_data()
+    
     if readings:
         for reading in readings.values():
             print(f"\n  📈 {reading.name}")
             print(f"     └─ {reading.value} {reading.unit}")
-
+            
+            # Warnings
             if reading.name == "Engine Coolant Temperature":
-                if reading.value < 70:
-                    print("     ⚠️  LOW - Engine not at operating temp")
-                elif reading.value > 105:
+                if reading.value > 105:
                     print("     🔥 HIGH - Possible overheating!")
+                elif reading.value < 70:
+                    print("     ⚠️  LOW - Not at operating temp")
             elif "Throttle" in reading.name and reading.value > 5:
                 print("     ⚠️  Not fully closed at idle")
-    else:
-        print("\n  ❌ Unable to read sensor data")
-
+    
     print("\n" + "=" * 60)
-    print(f"  Report completed: {cr_timestamp()}")
+    print(f"  Scan completed: {cr_timestamp()}")
     print("=" * 60)
 
 
-def run_codes_only(scanner: OBDScanner) -> None:
-    """Read and display DTCs only."""
-    print(f"\n📋 Reading Diagnostic Trouble Codes...")
-    print(f"   Timestamp: {cr_timestamp()}\n")
+def action_read_codes():
+    """Read DTCs only."""
+    global _scanner
     
-    dtcs = scanner.read_dtcs()
-
+    if not _scanner or not _scanner.is_connected:
+        print("\n  ❌ Not connected! Connect first.")
+        return
+    
+    print_header("DIAGNOSTIC TROUBLE CODES")
+    print(f"  Time: {cr_timestamp()}\n")
+    
+    dtcs = _scanner.read_dtcs()
+    
     if dtcs:
         for dtc in dtcs:
             status = f" [{dtc.status}]" if dtc.status != "stored" else ""
-            print(f"{dtc.code}{status}: {dtc.description}")
+            print(f"  {dtc.code}{status}: {dtc.description}")
     else:
-        print("No trouble codes found.")
+        print("  ✅ No trouble codes found.")
 
 
-def run_live_data(scanner: OBDScanner, pids: Optional[List[str]] = None) -> None:
-    """Single read of live sensor data."""
-    print(f"\n📊 Reading Live Sensor Data...")
-    print(f"   Timestamp: {cr_timestamp()}\n")
+def action_live_monitor():
+    """Continuous live monitoring."""
+    global _scanner, _stop_monitoring, _monitor_interval, _log_format
     
-    readings = scanner.read_live_data(pids)
-
-    if readings:
-        for reading in readings.values():
-            print(f"{reading.name}: {reading.value} {reading.unit}")
-    else:
-        print("No sensor data available.")
-
-
-def run_monitor(scanner: OBDScanner, interval: float = 1.0, log: bool = False, log_format: str = "csv"):
-    """
-    Continuous live telemetry monitoring.
-    Optionally logs to CSV/JSON file.
-    """
-    global _stop_monitoring
+    if not _scanner or not _scanner.is_connected:
+        print("\n  ❌ Not connected! Connect first.")
+        return
+    
     _stop_monitoring = False
-
     signal.signal(signal.SIGINT, signal_handler)
-
-    # Set up logger if requested
-    logger: Optional[SessionLogger] = None
-    if log:
+    
+    # Ask about logging
+    print("\n  📊 Live Telemetry Monitor")
+    log_choice = input("  Save to log file? (y/n): ").strip().lower()
+    
+    logger = None
+    if log_choice == 'y':
         logger = SessionLogger("logs")
-        log_file = logger.start_session(format=log_format)
+        log_file = logger.start_session(format=_log_format)
         print(f"  📝 Logging to: {log_file}")
-
-    print_header("LIVE TELEMETRY MONITOR")
+    
+    print_header("LIVE TELEMETRY")
     print(f"  Started: {cr_timestamp()}")
-    print(f"  Refresh: {interval}s")
-    if logger:
-        print(f"  Log format: {log_format.upper()}")
+    print(f"  Refresh: {_monitor_interval}s")
     print(f"\n  Press Ctrl+C to stop\n")
     print("-" * 70)
-
-    # Column headers
+    
+    # Headers
     print(f"{'Time':<10} {'Coolant':<10} {'RPM':<8} {'Speed':<8} {'Throttle':<10} {'Pedal':<8} {'Volts':<8}")
-    print(f"{'─'*10} {'─'*10} {'─'*8} {'─'*8} {'─'*10} {'─'*8} {'─'*8}")
-
-    monitor_pids = ["05", "0C", "0D", "11", "49", "42"]
-    reading_count = 0
-
+    print("-" * 70)
+    
+    pids = ["05", "0C", "0D", "11", "49", "42"]
+    
     while not _stop_monitoring:
         try:
-            readings = scanner.read_live_data(monitor_pids)
-
-            # Log if enabled
+            readings = _scanner.read_live_data(pids)
+            
             if logger:
                 logger.log_readings(readings)
-                
-                # Log warnings as events
-                coolant = readings.get("05")
-                if coolant and coolant.value > 105:
-                    logger.log_event("WARNING", f"Coolant temp HIGH: {coolant.value}°C")
-
+            
             # Extract values
             coolant = readings.get("05")
             rpm = readings.get("0C")
@@ -220,34 +299,24 @@ def run_monitor(scanner: OBDScanner, interval: float = 1.0, log: bool = False, l
             throttle = readings.get("11")
             pedal = readings.get("49")
             volts = readings.get("42")
-
-            time_str = datetime.now(CR_TZ).strftime("%H:%M:%S")
-
+            
+            time_str = cr_time_only()
             coolant_str = f"{coolant.value:.0f}°C" if coolant else "---"
             rpm_str = f"{rpm.value:.0f}" if rpm else "---"
             speed_str = f"{speed.value:.0f}km/h" if speed else "---"
             throttle_str = f"{throttle.value:.1f}%" if throttle else "---"
             pedal_str = f"{pedal.value:.1f}%" if pedal else "---"
             volts_str = f"{volts.value:.1f}V" if volts else "---"
-
+            
             print(f"{time_str:<10} {coolant_str:<10} {rpm_str:<8} {speed_str:<8} {throttle_str:<10} {pedal_str:<8} {volts_str:<8}")
-
-            reading_count += 1
-
-            if coolant and coolant.value > 105:
-                print(f"  🔥 WARNING: Coolant temp HIGH!")
-            if coolant and coolant.value < 20:
-                print(f"  ❄️  NOTE: Coolant reading very low - sensor issue?")
-
-            time.sleep(interval)
-
+            
+            import time
+            time.sleep(_monitor_interval)
+            
         except Exception as e:
-            print(f"  ⚠️  Read error: {e}")
-            if logger:
-                logger.log_event("ERROR", str(e))
-            time.sleep(interval)
-
-    # End session
+            print(f"\n  ❌ Error: {e}")
+            break
+    
     print("-" * 70)
     
     if logger:
@@ -256,283 +325,361 @@ def run_monitor(scanner: OBDScanner, interval: float = 1.0, log: bool = False, l
         print(f"   File: {summary.get('file', 'N/A')}")
         print(f"   Duration: {summary.get('duration_seconds', 0):.1f} seconds")
         print(f"   Readings: {summary.get('reading_count', 0)}")
-    else:
-        print(f"\n📊 Monitor Summary:")
-        print(f"   Stopped: {cr_timestamp()}")
-        print(f"   Total readings: {reading_count}")
 
 
-def run_freeze_frame(scanner: OBDScanner) -> None:
-    """Read and display freeze frame data."""
-    print_header("FREEZE FRAME DATA")
-    print(f"  🕐 Read at: {cr_timestamp()}")
+def action_freeze_frame():
+    """Read freeze frame data."""
+    global _scanner
     
-    freeze = scanner.read_freeze_frame()
-    
-    if not freeze:
-        print("\n  ❌ No freeze frame data available")
-        print("     (Freeze frame is captured when a DTC is stored)")
+    if not _scanner or not _scanner.is_connected:
+        print("\n  ❌ Not connected! Connect first.")
         return
     
-    print(f"\n  📸 Freeze Frame for DTC: {freeze.dtc_code}")
-    print(f"     Captured at the moment this code was set:\n")
+    print_header("FREEZE FRAME DATA")
+    print(f"  Time: {cr_timestamp()}\n")
     
-    for reading in freeze.readings.values():
-        print(f"  {reading.name}: {reading.value} {reading.unit}")
+    freeze = _scanner.read_freeze_frame()
     
-    print("\n" + "=" * 60)
+    if freeze:
+        print(f"  DTC that triggered: {freeze.dtc_code}\n")
+        for reading in freeze.readings.values():
+            print(f"  {reading.name}: {reading.value} {reading.unit}")
+    else:
+        print("  No freeze frame data available.")
+        print("  (Freeze frames are captured when a DTC is stored)")
 
 
-def run_readiness(scanner: OBDScanner) -> None:
-    """Read and display readiness monitor status."""
+def action_readiness():
+    """Check readiness monitors."""
+    global _scanner
+    
+    if not _scanner or not _scanner.is_connected:
+        print("\n  ❌ Not connected! Connect first.")
+        return
+    
     print_header("READINESS MONITORS")
-    print(f"  🕐 Read at: {cr_timestamp()}")
+    print(f"  Time: {cr_timestamp()}\n")
     
-    # First show MIL status
-    mil_on, dtc_count = scanner.get_mil_status()
-    print(f"\n  Check Engine Light: {'🚨 ON' if mil_on else '✅ OFF'}")
-    print(f"  Stored DTC Count: {dtc_count}")
-    
-    print_subheader("MONITOR STATUS")
-    
-    readiness = scanner.read_readiness()
+    readiness = _scanner.read_readiness()
     
     if not readiness:
-        print("\n  ❌ Unable to read readiness monitors")
+        print("  ❌ Unable to read readiness monitors.")
         return
     
-    complete_count = 0
-    incomplete_count = 0
-    na_count = 0
+    complete = incomplete = na = 0
     
     for name, status in readiness.items():
-        if name == "MIL (Check Engine Light)":
-            continue
-        
         if not status.available:
             emoji = "➖"
-            na_count += 1
+            na += 1
         elif status.complete:
             emoji = "✅"
-            complete_count += 1
+            complete += 1
         else:
             emoji = "❌"
-            incomplete_count += 1
-        
+            incomplete += 1
         print(f"  {emoji} {name}: {status.status_str}")
     
     print(f"\n  Summary:")
-    print(f"    ✅ Complete: {complete_count}")
-    print(f"    ❌ Incomplete: {incomplete_count}")
-    print(f"    ➖ Not Available: {na_count}")
+    print(f"    ✅ Complete: {complete}")
+    print(f"    ❌ Incomplete: {incomplete}")
+    print(f"    ➖ Not Available: {na}")
     
-    if incomplete_count > 0:
-        print("\n  💡 Note: Incomplete monitors need specific drive cycles to run.")
-        print("     This is normal after clearing DTCs or disconnecting the battery.")
-    
-    print("\n" + "=" * 60)
+    if incomplete > 0:
+        print("\n  💡 Incomplete monitors need drive cycles to complete.")
+        print("     Normal after clearing codes or disconnecting battery.")
 
 
-def run_clear_codes(scanner: OBDScanner) -> None:
-    """Clear all DTCs with confirmation."""
-    print(f"\n⚠️  Clear DTCs requested at {cr_timestamp()}")
-    print("   WARNING: This will also reset all readiness monitors!")
-    confirm = input("   Continue? (yes/no): ")
+def action_clear_codes():
+    """Clear DTCs."""
+    global _scanner
     
-    if confirm.strip().lower() == "yes":
-        if scanner.clear_dtcs():
-            print(f"✅ DTCs cleared successfully at {cr_timestamp()}")
-            print("   Note: Readiness monitors have been reset.")
+    if not _scanner or not _scanner.is_connected:
+        print("\n  ❌ Not connected! Connect first.")
+        return
+    
+    print_header("CLEAR TROUBLE CODES")
+    print(f"\n  ⚠️  WARNING: This will:")
+    print("     - Clear all stored DTCs")
+    print("     - Turn off Check Engine light")
+    print("     - Reset ALL readiness monitors")
+    print("     - Permanent codes will NOT be cleared\n")
+    
+    confirm = input("  Type 'YES' to confirm: ").strip()
+    
+    if confirm == "YES":
+        if _scanner.clear_dtcs():
+            print(f"\n  ✅ DTCs cleared at {cr_timestamp()}")
         else:
-            print("❌ Failed to clear DTCs")
+            print("\n  ❌ Failed to clear DTCs")
     else:
-        print("Cancelled.")
+        print("\n  Cancelled.")
 
 
-def lookup_code(code: str) -> None:
-    """Look up a single DTC code."""
-    db = DTCDatabase()
-    info = db.lookup(code)
-
+def action_lookup_code():
+    """Look up a specific DTC."""
+    global _dtc_db
+    
+    if not _dtc_db:
+        _dtc_db = DTCDatabase(manufacturer=_current_manufacturer)
+    
+    print_header("CODE LOOKUP")
+    print(f"  Database: {_dtc_db.count} codes loaded")
+    print(f"  Manufacturer: {_current_manufacturer.capitalize()}\n")
+    
+    code = input("  Enter code (e.g., P0118): ").strip().upper()
+    
+    if not code:
+        return
+    
+    info = _dtc_db.lookup(code)
+    
     if info:
-        print(f"\n{info.code}: {info.description}")
-        print(f"  Category: {info.category}")
-        print(f"  Type: {info.manufacturer}")
+        print(f"\n  📋 {info.code}")
+        print(f"     └─ {info.description}")
+        print(f"     └─ Source: {info.source}")
     else:
-        print(f"\n{code}: Not found in database")
+        print(f"\n  ❌ Code '{code}' not found in database.")
+        
+        # Try search
+        results = _dtc_db.search(code)
+        if results:
+            print(f"\n  Similar codes:")
+            for r in results[:5]:
+                print(f"    {r.code}: {r.description}")
 
 
-def run_demo() -> None:
-    """Demo mode - no hardware required."""
-    print_header("DEMO MODE - NO HARDWARE")
-    print(f"  Timestamp: {cr_timestamp()}")
-    print("\nThis shows what the scanner does without actual hardware.\n")
-
-    db = DTCDatabase()
-    print(f"📚 Database loaded: {db.count} codes\n")
-
-    print("Codes that might cause your symptoms:")
-    print("(ETC light + rough idle + fans always on + cold temp gauge)\n")
-
-    relevant = ["P0118", "P2135", "P2122", "P1489", "P1490", "P0507", "P0128"]
-    for code in relevant:
-        info = db.lookup(code)
-        if info:
-            print(f"  {code}: {info.description}")
-
-    print("\n" + "-" * 40)
-    print("\nAvailable commands:")
-    print("  --scan        Full diagnostic report")
-    print("  --codes       Read trouble codes only")
-    print("  --live        Single live data read")
-    print("  --monitor     Continuous telemetry (Ctrl+C to stop)")
-    print("  --monitor --log          ...with CSV logging")
-    print("  --monitor --log --json   ...with JSON logging")
-    print("  --freeze      Read freeze frame data")
-    print("  --readiness   Check readiness monitors")
-    print("  --lookup      Look up a specific code")
-
-    print("\n📡 Available serial ports:")
-    ports = ELM327.find_ports()
-    if ports:
-        for p in ports:
-            print(f"  {p}")
+def action_search_codes():
+    """Search DTC database."""
+    global _dtc_db
+    
+    if not _dtc_db:
+        _dtc_db = DTCDatabase(manufacturer=_current_manufacturer)
+    
+    print_header("SEARCH CODES")
+    
+    query = input("  Search term (e.g., 'throttle', 'coolant'): ").strip()
+    
+    if not query:
+        return
+    
+    results = _dtc_db.search(query)
+    
+    if results:
+        print(f"\n  Found {len(results)} codes:\n")
+        for info in results[:20]:  # Limit to 20 results
+            print(f"  {info.code}: {info.description}")
+        if len(results) > 20:
+            print(f"\n  ... and {len(results) - 20} more.")
     else:
-        print("  No USB serial ports found")
-
-    print("\nExamples:")
-    print("  python3 jeep_scan.py --scan")
-    print("  python3 jeep_scan.py --monitor --log")
-    print("  python3 jeep_scan.py --freeze")
+        print(f"\n  No codes found matching '{query}'")
 
 
-def connect_scanner(scanner: OBDScanner, port: Optional[str]) -> str:
-    """Connect using a specified port, or auto-detect."""
-    if port:
-        scanner.elm.port = port
-        print(f"\n📡 Connecting to {port}...")
-        scanner.connect()
-        return port
+# =============================================================================
+# Settings Menu
+# =============================================================================
 
-    ports = ELM327.find_ports()
-    if not ports:
-        raise ConnectionError("No USB serial ports found. Is the ELM327 plugged in?")
-
-    last_error: Optional[Exception] = None
-
-    print("\n🔍 Auto-detecting OBD port...")
-    for p in ports:
-        try:
-            print(f"  Trying {p} ...")
-            scanner.elm.port = p
-            scanner.connect()
-            print(f"  ✅ Vehicle responded on {p}")
-            return p
-        except Exception as e:
-            last_error = e
+def menu_settings():
+    """Settings submenu."""
+    global _current_manufacturer, _dtc_db, _log_format, _monitor_interval
+    
+    while True:
+        clear_screen()
+        print_menu("SETTINGS", [
+            ("1", f"Vehicle Make      [{_current_manufacturer.capitalize()}]"),
+            ("2", f"Log Format        [{_log_format.upper()}]"),
+            ("3", f"Monitor Interval  [{_monitor_interval}s]"),
+            ("4", "View Serial Ports"),
+            ("0", "Back to Main Menu"),
+        ])
+        
+        choice = input("\n  Select option: ").strip()
+        
+        if choice == "1":
+            print("\n  Available manufacturers:")
+            print("    1. Generic (all codes)")
+            print("    2. Chrysler / Jeep / Dodge")
+            print("    3. Land Rover / Jaguar")
+            
+            mfr_choice = input("\n  Select (1-3): ").strip()
+            
+            if mfr_choice == "1":
+                _current_manufacturer = "generic"
+            elif mfr_choice == "2":
+                _current_manufacturer = "chrysler"
+            elif mfr_choice == "3":
+                _current_manufacturer = "landrover"
+            
+            # Reload database
+            _dtc_db = DTCDatabase(manufacturer=_current_manufacturer if _current_manufacturer != "generic" else None)
+            print(f"\n  ✅ Set to {_current_manufacturer.capitalize()}")
+            print(f"     Loaded {_dtc_db.count} codes")
+            press_enter()
+        
+        elif choice == "2":
+            print("\n  Log formats:")
+            print("    1. CSV (spreadsheet compatible)")
+            print("    2. JSON (structured data)")
+            
+            fmt_choice = input("\n  Select (1-2): ").strip()
+            
+            if fmt_choice == "1":
+                _log_format = "csv"
+            elif fmt_choice == "2":
+                _log_format = "json"
+            
+            print(f"\n  ✅ Log format set to {_log_format.upper()}")
+            press_enter()
+        
+        elif choice == "3":
+            print(f"\n  Current interval: {_monitor_interval} seconds")
+            new_interval = input("  New interval (0.5 - 10): ").strip()
+            
             try:
-                scanner.disconnect()
-            except Exception:
-                pass
+                val = float(new_interval)
+                if 0.5 <= val <= 10:
+                    _monitor_interval = val
+                    print(f"\n  ✅ Interval set to {_monitor_interval}s")
+                else:
+                    print("\n  ❌ Must be between 0.5 and 10")
+            except ValueError:
+                print("\n  ❌ Invalid number")
+            press_enter()
+        
+        elif choice == "4":
+            print("\n  📡 Available serial ports:\n")
+            ports = ELM327.find_ports()
+            if ports:
+                for p in ports:
+                    print(f"    {p}")
+            else:
+                print("    No USB serial ports found")
+            press_enter()
+        
+        elif choice == "0":
+            break
 
-    raise ConnectionError(
-        f"No responding OBD device found. Tried: {ports}. Last error: {last_error}"
-    )
+
+# =============================================================================
+# Demo Mode
+# =============================================================================
+
+def run_demo():
+    """Demo mode without hardware."""
+    global _dtc_db
+    
+    clear_screen()
+    print_header(f"{APP_NAME} v{VERSION} - DEMO MODE")
+    print(f"  Time: {cr_timestamp()}")
+    print("\n  This demonstrates scanner features without hardware.\n")
+    
+    # Load database
+    _dtc_db = DTCDatabase()
+    print(f"  📚 Loaded {_dtc_db.count} DTC codes\n")
+    
+    # Show some example codes
+    print("  Example codes your scanner can identify:\n")
+    examples = ["P0118", "P0220", "P0120", "P1489", "P1684", "B1601", "U0100"]
+    
+    for code in examples:
+        info = _dtc_db.lookup(code)
+        if info:
+            print(f"    {code}: {info.description}")
+    
+    print("\n" + "-" * 60)
+    print("\n  To use with a real vehicle:")
+    print("    1. Connect ELM327 adapter to vehicle OBD port")
+    print("    2. Turn ignition ON (or start engine)")
+    print("    3. Run: python3 obd_scan.py")
+    print("    4. Select option 1 to connect")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Jeep OBD-II Scanner - Open Source Vehicle Diagnostics",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python3 jeep_scan.py --demo                    # Demo mode
-  python3 jeep_scan.py --scan                    # Full diagnostic report
-  python3 jeep_scan.py --codes                   # DTCs only
-  python3 jeep_scan.py --live                    # Live data (single read)
-  python3 jeep_scan.py --monitor                 # Continuous telemetry
-  python3 jeep_scan.py --monitor --log           # ...with CSV logging
-  python3 jeep_scan.py --monitor --log --json    # ...with JSON logging
-  python3 jeep_scan.py --freeze                  # Freeze frame data
-  python3 jeep_scan.py --readiness               # Readiness monitors
-  python3 jeep_scan.py --lookup P0118            # Look up code
-  python3 jeep_scan.py --clear                   # Clear DTCs
-        """,
-    )
+# =============================================================================
+# Main Menu
+# =============================================================================
 
-    parser.add_argument("--demo", action="store_true", help="Run demo mode (no hardware)")
-    parser.add_argument("--scan", action="store_true", help="Full diagnostic scan")
-    parser.add_argument("--codes", action="store_true", help="Read DTCs only")
-    parser.add_argument("--live", action="store_true", help="Read live sensor data (single read)")
-    parser.add_argument("--monitor", action="store_true", help="Continuous live telemetry (Ctrl+C to stop)")
-    parser.add_argument("--log", action="store_true", help="Log monitor session to file")
-    parser.add_argument("--json", action="store_true", help="Use JSON format for logging (default: CSV)")
-    parser.add_argument("--interval", type=float, default=1.0, help="Refresh interval for --monitor (default: 1.0)")
-    parser.add_argument("--freeze", action="store_true", help="Read freeze frame data")
-    parser.add_argument("--readiness", action="store_true", help="Check readiness monitors")
-    parser.add_argument("--clear", action="store_true", help="Clear all DTCs")
-    parser.add_argument("--lookup", type=str, metavar="CODE", help="Look up a specific DTC code")
-    parser.add_argument("--port", type=str, help="Serial port (auto-detect if not specified)")
-    parser.add_argument("--baud", type=int, default=38400, help="Baud rate (default: 38400)")
+def main_menu():
+    """Main interactive menu."""
+    global _scanner, _dtc_db
+    
+    # Initialize database
+    _dtc_db = DTCDatabase()
+    
+    while True:
+        clear_screen()
+        
+        print(f"\n  ╔════════════════════════════════════════════════════════╗")
+        print(f"  ║           {APP_NAME} v{VERSION}                       ║")
+        print(f"  ╚════════════════════════════════════════════════════════╝")
+        
+        print_status()
+        
+        print_menu("MAIN MENU", [
+            ("1", "Connect to Vehicle"),
+            ("2", "Full Diagnostic Scan"),
+            ("3", "Read Trouble Codes"),
+            ("4", "Live Telemetry Monitor"),
+            ("5", "Freeze Frame Data"),
+            ("6", "Readiness Monitors"),
+            ("7", "Clear Codes"),
+            ("8", "Lookup Code"),
+            ("9", "Search Codes"),
+            ("S", "Settings"),
+            ("0", "Exit"),
+        ])
+        
+        choice = input("\n  Select option: ").strip().upper()
+        
+        if choice == "1":
+            action_connect()
+            press_enter()
+        elif choice == "2":
+            action_full_scan()
+            press_enter()
+        elif choice == "3":
+            action_read_codes()
+            press_enter()
+        elif choice == "4":
+            action_live_monitor()
+            press_enter()
+        elif choice == "5":
+            action_freeze_frame()
+            press_enter()
+        elif choice == "6":
+            action_readiness()
+            press_enter()
+        elif choice == "7":
+            action_clear_codes()
+            press_enter()
+        elif choice == "8":
+            action_lookup_code()
+            press_enter()
+        elif choice == "9":
+            action_search_codes()
+            press_enter()
+        elif choice == "S":
+            menu_settings()
+        elif choice == "0":
+            if _scanner and _scanner.is_connected:
+                _scanner.disconnect()
+                print(f"\n  🔌 Disconnected at {cr_timestamp()}")
+            print("\n  👋 Goodbye!\n")
+            break
 
-    args = parser.parse_args()
 
-    # Default to demo if no args
-    if len(sys.argv) == 1:
-        args.demo = True
-
-    if args.demo:
+def main():
+    """Entry point."""
+    # Check for --demo flag
+    if len(sys.argv) > 1 and sys.argv[1] == "--demo":
         run_demo()
         return
-
-    if args.lookup:
-        lookup_code(args.lookup)
-        return
-
-    # Hardware operations
-    scanner = OBDScanner(port=args.port, baudrate=args.baud)
-
+    
+    # Run interactive menu
     try:
-        print(f"   Time: {cr_timestamp()}")
-        used_port = connect_scanner(scanner, args.port)
-        print("✅ Connected!\n")
-
-        try:
-            if args.scan:
-                run_full_scan(scanner)
-            elif args.codes:
-                run_codes_only(scanner)
-            elif args.live:
-                run_live_data(scanner)
-            elif args.monitor:
-                log_format = "json" if args.json else "csv"
-                run_monitor(scanner, args.interval, log=args.log, log_format=log_format)
-            elif args.freeze:
-                run_freeze_frame(scanner)
-            elif args.readiness:
-                run_readiness(scanner)
-            elif args.clear:
-                run_clear_codes(scanner)
-            else:
-                run_full_scan(scanner)
-        finally:
-            scanner.disconnect()
-            print(f"\n🔌 Disconnected at {cr_timestamp()}")
-
-    except ConnectionError as e:
-        print(f"\n❌ Connection failed: {e}")
-        print(f"   Time: {cr_timestamp()}")
-        print("\n💡 Tips:")
-        print("  - Make sure ELM327 is plugged into car's OBD port")
-        print("  - Turn ignition to ON (engine can be off)")
-        print("  - Try specifying port: --port /dev/tty.usbserial-XXXX")
-        print("  - Run --demo to test without hardware")
-        sys.exit(1)
-
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        print(f"   Time: {cr_timestamp()}")
-        sys.exit(1)
+        main_menu()
+    except KeyboardInterrupt:
+        print("\n\n  👋 Goodbye!\n")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

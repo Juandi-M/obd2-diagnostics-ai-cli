@@ -3,6 +3,7 @@ DTC (Diagnostic Trouble Code) Module
 ====================================
 Handles DTC decoding, lookup, and database management.
 Supports # comments in CSV files for section headers.
+Loads all CSV files from data/ directory automatically.
 """
 
 from __future__ import annotations
@@ -18,28 +19,24 @@ class DTCInfo:
     """Represents a Diagnostic Trouble Code."""
     code: str
     description: str
+    source: str = ""  # Which CSV file it came from
 
 
 def _project_root() -> Path:
     """
     Resolve repo root reliably regardless of where python is executed from.
-
-    Expected layout:
-      JeepOBDII/
-        data/dtc_database.csv
-        obd/dtc.py   (this file)
     """
     return Path(__file__).resolve().parents[1]
 
 
-def _default_csv_path() -> Path:
-    return _project_root() / "data" / "dtc_database.csv"
+def _data_dir() -> Path:
+    return _project_root() / "data"
 
 
 class DTCDatabase:
     """
     DTC lookup database.
-    Loads codes from CSV for easy extension.
+    Loads codes from all CSV files in data/ directory.
     
     CSV Format:
         "CODE","Description"
@@ -47,37 +44,68 @@ class DTCDatabase:
     Supports:
         - # comments for section headers
         - Empty lines for spacing
+        - Multiple CSV files (generic + manufacturer-specific)
     """
 
-    def __init__(self, csv_path: Optional[str] = None):
+    # Map of manufacturer keywords to their CSV files
+    MANUFACTURER_FILES = {
+        "chrysler": "dtc_jeep_dodge_Chrysler.csv",
+        "jeep": "dtc_jeep_dodge_Chrysler.csv",
+        "dodge": "dtc_jeep_dodge_Chrysler.csv",
+        "landrover": "dtc_landrover.csv",
+        "jaguar": "dtc_landrover.csv",
+    }
+
+    def __init__(self, manufacturer: Optional[str] = None):
+        """
+        Initialize DTC database.
+        
+        Args:
+            manufacturer: Optional manufacturer name to load specific codes.
+                         If None, loads generic + all manufacturer codes.
+        """
         self.codes: Dict[str, DTCInfo] = {}
+        self.manufacturer = manufacturer
+        self._load_databases()
 
-        self.path: Path = Path(csv_path) if csv_path else _default_csv_path()
+    def _load_databases(self):
+        """Load all relevant CSV databases."""
+        data_dir = _data_dir()
+        
+        if not data_dir.exists():
+            return
+        
+        # Always load generic codes first
+        generic_path = data_dir / "dtc_generic.csv"
+        if generic_path.exists():
+            self._load_from_csv(generic_path, "generic")
+        
+        # Load manufacturer-specific codes (they override generic for P1xxx codes)
+        if self.manufacturer:
+            # Load only the specified manufacturer
+            mfr_lower = self.manufacturer.lower()
+            if mfr_lower in self.MANUFACTURER_FILES:
+                mfr_file = data_dir / self.MANUFACTURER_FILES[mfr_lower]
+                if mfr_file.exists():
+                    self._load_from_csv(mfr_file, mfr_lower)
+        else:
+            # Load all manufacturer files
+            for mfr_name, filename in self.MANUFACTURER_FILES.items():
+                mfr_path = data_dir / filename
+                if mfr_path.exists():
+                    self._load_from_csv(mfr_path, mfr_name)
 
-        # Load if it exists; otherwise keep empty DB (avoid crashing tools)
-        if self.path.exists():
-            self.load_from_csv(self.path)
-
-    def load_from_csv(self, csv_path: Path | str):
-        """Load DTC codes from CSV file."""
-        p = Path(csv_path)
-
-        with p.open("r", encoding="utf-8-sig", newline="") as f:
+    def _load_from_csv(self, csv_path: Path, source: str):
+        """Load DTC codes from a single CSV file."""
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
             for line in f:
-                # Strip whitespace
                 line = line.strip()
                 
-                # Skip empty lines
-                if not line:
+                # Skip empty lines and comments
+                if not line or line.startswith("#"):
                     continue
                 
-                # Skip comments (lines starting with #)
-                if line.startswith("#"):
-                    continue
-                
-                # Parse CSV line
                 try:
-                    # Handle quoted CSV format: "CODE","Description"
                     reader = csv.reader([line])
                     row = next(reader)
                     
@@ -93,10 +121,19 @@ class DTCDatabase:
                     self.codes[code] = DTCInfo(
                         code=code,
                         description=description,
+                        source=source,
                     )
                 except Exception:
-                    # Skip malformed lines
                     continue
+
+    def set_manufacturer(self, manufacturer: str):
+        """
+        Change manufacturer and reload databases.
+        Useful for switching between brands in interactive mode.
+        """
+        self.manufacturer = manufacturer
+        self.codes.clear()
+        self._load_databases()
 
     def lookup(self, code: str) -> Optional[DTCInfo]:
         """Look up a DTC code."""
@@ -123,6 +160,20 @@ class DTCDatabase:
     def count(self) -> int:
         """Number of codes in database."""
         return len(self.codes)
+    
+    @property
+    def available_manufacturers(self) -> List[str]:
+        """List of available manufacturer databases."""
+        data_dir = _data_dir()
+        available = []
+        seen_files = set()
+        
+        for mfr, filename in self.MANUFACTURER_FILES.items():
+            if filename not in seen_files and (data_dir / filename).exists():
+                available.append(mfr)
+                seen_files.add(filename)
+        
+        return available
 
 
 def decode_dtc_bytes(hex_bytes: str) -> str:
@@ -189,11 +240,11 @@ def parse_dtc_response(response: str, mode: str = "03") -> List[str]:
 _default_db: Optional[DTCDatabase] = None
 
 
-def get_database() -> DTCDatabase:
+def get_database(manufacturer: Optional[str] = None) -> DTCDatabase:
     """Get the default DTC database instance."""
     global _default_db
-    if _default_db is None:
-        _default_db = DTCDatabase()
+    if _default_db is None or manufacturer:
+        _default_db = DTCDatabase(manufacturer=manufacturer)
     return _default_db
 
 

@@ -8,29 +8,10 @@ from __future__ import annotations
 
 import csv
 import json
-import os
-from dataclasses import asdict
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-# Costa Rica timezone
-CR_TZ = timezone(timedelta(hours=-6))
-
-
-def cr_now() -> datetime:
-    """Get current time in Costa Rica timezone."""
-    return datetime.now(CR_TZ)
-
-
-def cr_timestamp_str() -> str:
-    """Get formatted timestamp string."""
-    return cr_now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def cr_timestamp_filename() -> str:
-    """Get timestamp suitable for filenames."""
-    return cr_now().strftime("%Y-%m-%d_%H-%M-%S")
+from .utils import cr_now, cr_timestamp, cr_timestamp_filename
 
 
 class SessionLogger:
@@ -54,12 +35,13 @@ class SessionLogger:
         
         self.session_file: Optional[Path] = None
         self.session_format: str = "csv"
-        self.session_start: Optional[datetime] = None
+        self.session_start = None
         self.reading_count: int = 0
-        self._csv_writer: Optional[csv.DictWriter] = None
-        self._file_handle: Optional[Any] = None
+        self._csv_writer = None
+        self._file_handle = None
         self._json_data: List[Dict] = []
         self._headers_written: bool = False
+        self._csv_fieldnames: List[str] = []
     
     def start_session(self, format: str = "csv", filename: Optional[str] = None) -> Path:
         """
@@ -77,6 +59,7 @@ class SessionLogger:
         self.reading_count = 0
         self._headers_written = False
         self._json_data = []
+        self._csv_fieldnames = []
         
         # Generate filename
         if filename:
@@ -103,13 +86,12 @@ class SessionLogger:
         if not self.session_file:
             raise RuntimeError("No active session. Call start_session() first.")
         
-        timestamp = cr_timestamp_str()
+        timestamp = cr_timestamp()
         
         # Flatten readings to simple dict
         row = {"timestamp": timestamp}
         
         for pid, reading in readings.items():
-            # Use short column names for CSV
             col_name = self._pid_to_column(reading.name)
             row[col_name] = reading.value
             row[f"{col_name}_unit"] = reading.unit
@@ -122,16 +104,11 @@ class SessionLogger:
         self.reading_count += 1
     
     def log_dtcs(self, dtcs: List[Any]) -> None:
-        """
-        Log diagnostic trouble codes to the session.
-        
-        Args:
-            dtcs: List of DiagnosticCode from scanner.read_dtcs()
-        """
+        """Log diagnostic trouble codes to the session."""
         if not self.session_file:
             raise RuntimeError("No active session. Call start_session() first.")
         
-        timestamp = cr_timestamp_str()
+        timestamp = cr_timestamp()
         
         for dtc in dtcs:
             row = {
@@ -152,7 +129,7 @@ class SessionLogger:
         if not self.session_file:
             raise RuntimeError("No active session. Call start_session() first.")
         
-        timestamp = cr_timestamp_str()
+        timestamp = cr_timestamp()
         row = {"timestamp": timestamp, "type": "FREEZE_FRAME", **freeze_data}
         
         if self.session_format == "csv":
@@ -172,7 +149,7 @@ class SessionLogger:
         if not self.session_file:
             raise RuntimeError("No active session. Call start_session() first.")
         
-        timestamp = cr_timestamp_str()
+        timestamp = cr_timestamp()
         row = {
             "timestamp": timestamp,
             "type": event_type,
@@ -188,7 +165,6 @@ class SessionLogger:
     
     def _pid_to_column(self, name: str) -> str:
         """Convert PID name to short column name."""
-        # Map common names to short versions
         mappings = {
             "Engine Coolant Temperature": "coolant",
             "Engine RPM": "rpm",
@@ -215,8 +191,6 @@ class SessionLogger:
         if not self._file_handle:
             return
         
-        # For CSV, we need to handle dynamic columns
-        # Write header on first row
         if not self._headers_written:
             self._csv_fieldnames = list(row.keys())
             self._csv_writer = csv.DictWriter(
@@ -227,21 +201,15 @@ class SessionLogger:
             self._csv_writer.writeheader()
             self._headers_written = True
         
-        # Add any new fields we haven't seen
         for key in row.keys():
             if key not in self._csv_fieldnames:
                 self._csv_fieldnames.append(key)
         
         self._csv_writer.writerow(row)
-        self._file_handle.flush()  # Ensure data is written
+        self._file_handle.flush()
     
     def end_session(self) -> Dict[str, Any]:
-        """
-        End the current logging session.
-        
-        Returns:
-            Session summary dictionary
-        """
+        """End the current logging session."""
         if not self.session_file:
             return {}
         

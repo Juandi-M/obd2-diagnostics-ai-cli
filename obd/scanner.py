@@ -7,20 +7,13 @@ High-level scanner interface for vehicle diagnostics.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from typing import Optional, Dict, List
 
 from .elm327 import ELM327
 from .pids import PIDS, decode_pid_response, DIAGNOSTIC_PIDS
-from .dtc import DTCDatabase, parse_dtc_response
-
-# Costa Rica timezone
-CR_TZ = timezone(timedelta(hours=-6))
-
-
-def cr_now() -> datetime:
-    """Get current time in Costa Rica timezone."""
-    return datetime.now(CR_TZ)
+from .dtc import DTCDatabase, parse_dtc_response, decode_dtc_bytes
+from .utils import cr_now
 
 
 @dataclass
@@ -77,9 +70,9 @@ class OBDScanner:
     Provides easy-to-use methods for reading DTCs and live data.
     """
 
-    def __init__(self, port: Optional[str] = None, baudrate: int = 38400):
+    def __init__(self, port: Optional[str] = None, baudrate: int = 38400, manufacturer: Optional[str] = None):
         self.elm = ELM327(port=port, baudrate=baudrate)
-        self.dtc_db = DTCDatabase()
+        self.dtc_db = DTCDatabase(manufacturer=manufacturer)
         self._connected = False
 
     def connect(self) -> bool:
@@ -125,6 +118,10 @@ class OBDScanner:
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    def set_manufacturer(self, manufacturer: str):
+        """Change manufacturer database."""
+        self.dtc_db.set_manufacturer(manufacturer)
 
     # =========================================================================
     # DTC Methods
@@ -243,37 +240,31 @@ class OBDScanner:
         Read freeze frame data (Mode 02).
         
         Freeze frame captures sensor values at the moment a DTC was stored.
-        This helps diagnose what conditions caused the fault.
+        Useful for diagnosing intermittent problems.
         
         Args:
             frame_number: Which freeze frame to read (usually 0)
             
         Returns:
-            FreezeFrameData with sensor readings, or None if no data
+            FreezeFrameData object or None if no data available
         """
         if not self._connected:
             raise ConnectionError("Not connected to vehicle")
         
-        # First, check if there's a freeze frame DTC (Mode 02, PID 02)
-        response = self.elm.send_obd(f"0202")
+        # First, try to get the DTC that triggered the freeze frame
+        # Mode 02 PID 02 returns the DTC that caused freeze frame storage
+        response = self.elm.send_obd(f"0202{frame_number:02X}")
         
-        if response in ["NO DATA", "ERROR", "NO CONNECT", "INVALID"]:
-            return None
-        
-        # Parse the DTC from freeze frame
-        # Response format: 42 02 XX XX (where XX XX is the DTC)
-        resp_u = response.upper()
         dtc_code = "Unknown"
-        
-        if "4202" in resp_u:
-            idx = resp_u.find("4202") + 4
-            if len(resp_u) >= idx + 4:
+        if response not in ["NO DATA", "ERROR", "NO CONNECT", "INVALID"]:
+            resp_u = response.upper()
+            if "4202" in resp_u:
+                idx = resp_u.find("4202") + 4 + 2  # Skip frame number
                 dtc_hex = resp_u[idx:idx+4]
-                from .dtc import decode_dtc_bytes
-                dtc_code = decode_dtc_bytes(dtc_hex)
+                if len(dtc_hex) >= 4:
+                    dtc_code = decode_dtc_bytes(dtc_hex)
         
         # Now read common freeze frame PIDs
-        # Mode 02 uses same PIDs as Mode 01, but with frame number
         freeze_pids = ["04", "05", "06", "07", "0B", "0C", "0D", "0E", "0F", "11"]
         
         readings: Dict[str, SensorReading] = {}
@@ -283,7 +274,6 @@ class OBDScanner:
                 continue
                 
             pid_info = PIDS[pid]
-            # Mode 02, PID, Frame number (as 2 hex digits)
             cmd = f"02{pid}{frame_number:02X}"
             response = self.elm.send_obd(cmd)
             
@@ -296,7 +286,6 @@ class OBDScanner:
             if expected_header not in resp_u:
                 continue
             
-            # Skip frame number byte in response
             idx = resp_u.find(expected_header) + 4 + 2  # +2 for frame number
             data_hex = resp_u[idx:]
             
@@ -330,9 +319,6 @@ class OBDScanner:
         
         Shows which emission system self-tests have completed.
         Important after clearing DTCs - some tests need specific drive cycles.
-        
-        Returns:
-            Dictionary of monitor name -> ReadinessStatus
         """
         if not self._connected:
             raise ConnectionError("Not connected to vehicle")
@@ -350,11 +336,10 @@ class OBDScanner:
         idx = resp_u.find("4101") + 4
         data_hex = resp_u[idx:]
         
-        if len(data_hex) < 8:  # Need 4 bytes (8 hex chars)
+        if len(data_hex) < 8:
             return {}
         
         try:
-            # Parse 4 bytes: A B C D
             byte_a = int(data_hex[0:2], 16)
             byte_b = int(data_hex[2:4], 16)
             byte_c = int(data_hex[4:6], 16)
@@ -364,28 +349,19 @@ class OBDScanner:
         
         monitors: Dict[str, ReadinessStatus] = {}
         
-        # Byte A, bit 7: MIL status (not a readiness monitor, but useful)
+        # MIL status
         mil_on = bool(byte_a & 0x80)
         monitors["MIL (Check Engine Light)"] = ReadinessStatus(
             monitor_name="MIL (Check Engine Light)",
             available=True,
-            complete=not mil_on,  # "Complete" means light is OFF
+            complete=not mil_on,
         )
         
-        # Byte A, bits 0-6: Number of DTCs
-        dtc_count = byte_a & 0x7F
-        
-        # Byte B determines spark vs compression ignition
+        # Spark vs compression ignition
         is_spark_ignition = not bool(byte_b & 0x08)
         
         if is_spark_ignition:
-            # Spark ignition (gasoline) monitors - Bytes B, C, D
-            
-            # Byte B - availability (bit set = available)
-            # Byte C - completeness for continuous monitors (bit set = incomplete)
-            # Byte D - completeness for non-continuous monitors (bit set = incomplete)
-            
-            # Continuous monitors (Byte B bits 0-2 available, Byte C bits 0-2 complete)
+            # Continuous monitors
             continuous_monitors = [
                 ("Misfire", 0),
                 ("Fuel System", 1),
@@ -401,32 +377,27 @@ class OBDScanner:
                     complete=not incomplete if available else False,
                 )
             
-            # Non-continuous monitors (Byte B bits 4-7 available, Byte D bits 0-7 complete)
+            # Non-continuous monitors
             non_continuous_monitors = [
-                ("Catalyst", 0, 0),          # B bit 0, D bit 0
-                ("Heated Catalyst", 1, 1),   # B bit 1, D bit 1
-                ("Evaporative System", 2, 2),
-                ("Secondary Air", 3, 3),
-                ("A/C Refrigerant", 4, 4),
-                ("Oxygen Sensor", 5, 5),
-                ("Oxygen Sensor Heater", 6, 6),
-                ("EGR System", 7, 7),
+                ("Catalyst", 0),
+                ("Heated Catalyst", 1),
+                ("Evaporative System", 2),
+                ("Secondary Air", 3),
+                ("A/C Refrigerant", 4),
+                ("Oxygen Sensor", 5),
+                ("Oxygen Sensor Heater", 6),
+                ("EGR System", 7),
             ]
             
-            for name, b_bit, d_bit in non_continuous_monitors:
-                available = bool(byte_b & (1 << (b_bit + 4))) if b_bit < 4 else bool(byte_b & (1 << b_bit))
-                # Adjust for actual bit positions in standard
-                available = bool(byte_b & (1 << (4 + (d_bit if d_bit < 4 else d_bit - 4))))
+            for name, d_bit in non_continuous_monitors:
                 incomplete = bool(byte_d & (1 << d_bit))
-                
                 monitors[name] = ReadinessStatus(
                     monitor_name=name,
-                    available=True,  # Simplified - assume available if we got here
+                    available=True,
                     complete=not incomplete,
                 )
-        
         else:
-            # Compression ignition (diesel) monitors
+            # Diesel monitors
             diesel_monitors = [
                 ("NMHC Catalyst", 0),
                 ("NOx/SCR Aftertreatment", 1),
@@ -447,12 +418,7 @@ class OBDScanner:
         return monitors
     
     def get_mil_status(self) -> tuple[bool, int]:
-        """
-        Quick check of MIL (Malfunction Indicator Lamp) status.
-        
-        Returns:
-            Tuple of (mil_on: bool, dtc_count: int)
-        """
+        """Quick check of MIL status. Returns (mil_on, dtc_count)."""
         if not self._connected:
             raise ConnectionError("Not connected to vehicle")
         

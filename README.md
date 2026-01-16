@@ -1,6 +1,6 @@
 # OBD-II Scanner
 
-Open source, modular vehicle diagnostic tool. Read trouble codes, monitor live telemetry, and analyze vehicle data from any OBD-II compliant vehicle (1996+).
+Open source, modular vehicle diagnostic tool with interactive menu. Read trouble codes, monitor live telemetry, and analyze vehicle data from any OBD-II compliant vehicle (1996+).
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
@@ -10,13 +10,14 @@ Open source, modular vehicle diagnostic tool. Read trouble codes, monitor live t
 
 ## Features
 
+- **Interactive Menu** — No flags to memorize, just pick from the menu
 - **Read Diagnostic Trouble Codes (DTCs)** — Stored, pending, and permanent codes
 - **Live Telemetry Monitoring** — Real-time sensor data with configurable refresh rate
 - **Freeze Frame Data** — Snapshot of sensor values when a code was triggered
 - **Readiness Monitors** — Check emission system self-test status (useful for inspections)
-- **Session Logging** — Export monitoring sessions to CSV or JSON for later analysis
-- **Multi-Brand Support** — Manufacturer-specific code databases (Chrysler, Land Rover, etc.)
-- **15,000+ DTC Definitions** — Comprehensive code database with descriptions
+- **Session Logging** — Export monitoring sessions to CSV or JSON
+- **Multi-Brand Support** — Chrysler/Jeep/Dodge, Land Rover/Jaguar code databases
+- **3,000+ DTC Definitions** — Comprehensive code database with descriptions
 
 ---
 
@@ -47,71 +48,52 @@ pip install pyserial
 # Run interactive mode (recommended)
 python3 obd_scan.py
 
-# Or use command flags
-python3 obd_scan.py --scan
+# Or run demo mode without hardware
+python3 obd_scan.py --demo
 ```
 
 ---
 
-## Usage
+## Interactive Menu
 
-### Interactive Mode
+Simply run `python3 obd_scan.py` to see the interactive menu:
 
-Simply run without arguments for the interactive menu:
+```
+  ╔════════════════════════════════════════════════════════╗
+  ║           OBD-II Scanner v2.0.0                        ║
+  ╚════════════════════════════════════════════════════════╝
 
-```bash
-python3 obd_scan.py
+  Status: 🔴 Disconnected | Vehicle: Generic | Format: CSV
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  MAIN MENU                                               ║
+  ╠══════════════════════════════════════════════════════════╣
+  ║  1. Connect to Vehicle                                   ║
+  ║  2. Full Diagnostic Scan                                 ║
+  ║  3. Read Trouble Codes                                   ║
+  ║  4. Live Telemetry Monitor                               ║
+  ║  5. Freeze Frame Data                                    ║
+  ║  6. Readiness Monitors                                   ║
+  ║  7. Clear Codes                                          ║
+  ║  8. Lookup Code                                          ║
+  ║  9. Search Codes                                         ║
+  ║  S. Settings                                             ║
+  ║  0. Exit                                                 ║
+  ╚══════════════════════════════════════════════════════════╝
+
+  Select option: _
 ```
 
-### Command Line Flags
+---
 
-| Flag | Description |
-|------|-------------|
-| `--scan` | Full diagnostic scan (DTCs + readiness + live data) |
-| `--codes` | Read trouble codes only |
-| `--live` | Single read of live sensor data |
-| `--monitor` | Continuous telemetry monitoring (Ctrl+C to stop) |
-| `--freeze` | Read freeze frame data |
-| `--readiness` | Check readiness monitor status |
-| `--clear` | Clear all DTCs (resets readiness monitors) |
-| `--lookup CODE` | Look up a specific DTC (e.g., `--lookup P0118`) |
-| `--demo` | Demo mode without hardware |
+## Settings
 
-### Options
+Access settings by pressing `S` in the main menu:
 
-| Option | Description |
-|--------|-------------|
-| `--port PORT` | Serial port (auto-detect if not specified) |
-| `--make MAKE` | Vehicle make for manufacturer-specific codes: `chrysler`, `landrover`, `ford`, `gm`, `toyota` |
-| `--log` | Save monitoring session to file |
-| `--json` | Use JSON format for logging (default: CSV) |
-| `--interval N` | Refresh interval in seconds for monitoring (default: 1.0) |
-| `--baud RATE` | Baud rate (default: 38400) |
-
-### Examples
-
-```bash
-# Full diagnostic scan
-python3 obd_scan.py --scan
-
-# Scan with Chrysler-specific codes
-python3 obd_scan.py --scan --make chrysler
-
-# Monitor with logging every 0.5 seconds
-python3 obd_scan.py --monitor --interval 0.5 --log
-
-# Monitor and save as JSON
-python3 obd_scan.py --monitor --log --json
-
-# Check readiness for emissions inspection
-python3 obd_scan.py --readiness
-
-# Look up a specific code
-python3 obd_scan.py --lookup P0118
-
-# Specify serial port manually
-python3 obd_scan.py --port /dev/tty.usbserial-11230 --scan
-```
+- **Vehicle Make** — Switch between Generic, Chrysler/Jeep/Dodge, or Land Rover/Jaguar
+- **Log Format** — Choose CSV or JSON for session logs
+- **Monitor Interval** — Adjust refresh rate for live telemetry (0.5s - 10s)
+- **View Serial Ports** — See available USB serial ports
 
 ---
 
@@ -119,13 +101,13 @@ python3 obd_scan.py --port /dev/tty.usbserial-11230 --scan
 
 ```
 obd2-scanner/
-├── obd_scan.py              # Main CLI / Interactive menu
+├── obd_scan.py              # Main CLI with interactive menu
 ├── requirements.txt         # Python dependencies
 ├── README.md
 ├── data/
-│   ├── dtc_generic.csv      # Generic OBD-II codes (P0xxx, P2xxx, U0xxx)
-│   ├── dtc_chrysler.csv     # Chrysler/Jeep/Dodge specific (P1xxx)
-│   └── dtc_landrover.csv    # Land Rover/Jaguar specific (P1xxx)
+│   ├── dtc_generic.csv          # Generic OBD-II codes (3,000+)
+│   ├── dtc_jeep_dodge_Chrysler.csv  # Chrysler/Jeep/Dodge specific
+│   └── dtc_landrover.csv        # Land Rover/Jaguar specific
 ├── logs/                    # Session logs (auto-created)
 │   └── session_YYYY-MM-DD_HH-MM-SS.csv
 └── obd/
@@ -133,8 +115,9 @@ obd2-scanner/
     ├── elm327.py            # ELM327 adapter communication
     ├── scanner.py           # High-level scanner interface
     ├── dtc.py               # DTC decoding and database lookup
-    ├── pids.py              # OBD-II PID definitions and formulas
-    └── logger.py            # Session logging (CSV/JSON)
+    ├── pids.py              # OBD-II PID definitions
+    ├── logger.py            # Session logging (CSV/JSON)
+    └── utils.py             # Shared utilities
 ```
 
 ---
@@ -145,7 +128,7 @@ obd2-scanner/
 
 | Status | Icon | Meaning |
 |--------|------|---------|
-| **Stored** | 🚨 | Confirmed fault, MIL (Check Engine) is ON |
+| **Stored** | 🚨 | Confirmed fault, Check Engine light is ON |
 | **Pending** | ⚠️ | Fault detected once, ECU is monitoring |
 | **Permanent** | ⚠️ | Cannot be cleared manually, requires repair + drive cycles |
 
@@ -169,18 +152,16 @@ obd2-scanner/
 | 11 | Throttle Position | % |
 | 42 | Control Module Voltage | V |
 | 0B | Intake Manifold Pressure | kPa |
-| 04 | Calculated Engine Load | % |
 | 06 | Short Term Fuel Trim | % |
 | 07 | Long Term Fuel Trim | % |
-| 0F | Intake Air Temperature | °C |
-| 10 | MAF Air Flow Rate | g/s |
-| 2F | Fuel Tank Level | % |
+| 49 | Accelerator Pedal Position D | % |
+| 4A | Accelerator Pedal Position E | % |
 
 ---
 
 ## Adding Custom Codes
 
-DTC databases are stored as CSV files in the `data/` folder.
+DTC databases are CSV files in the `data/` folder.
 
 ### Format
 
@@ -190,37 +171,32 @@ DTC databases are stored as CSV files in the `data/` folder.
 "P1234","Your custom code description"
 ```
 
-### Example
+### Adding a New Manufacturer
 
-```csv
-# Custom codes for my vehicle
-"P1489","High Speed Fan Control Relay Circuit"
-"P1490","Low Speed Fan Control Relay Circuit"
-```
+1. Create `data/dtc_yourmanufacturer.csv`
+2. Add the mapping in `obd/dtc.py` under `MANUFACTURER_FILES`
+3. The codes will be available in Settings → Vehicle Make
 
 ---
 
 ## Troubleshooting
 
-### "No ELM327 adapter found"
+### "No USB serial ports found"
 
 - Check USB connection
 - Verify adapter is plugged into vehicle OBD port
-- Turn ignition to ON (engine can be off)
-- Try specifying port manually: `--port /dev/tty.usbserial-XXXX`
+- On macOS, check System Preferences → Security for permission
 
 ### "No response from vehicle ECU"
 
-- Ensure ignition is ON
+- Turn ignition to ON (or start engine)
 - Check OBD port connection (should click in firmly)
-- Try with engine running
-- Some vehicles need 10-15 seconds after ignition ON
+- Wait 10-15 seconds after turning ignition ON
 
 ### "Failed to clear DTCs"
 
-- Some codes are **permanent** and cannot be cleared manually
-- Try with engine running
-- Permanent codes clear automatically after repair + drive cycles
+- **Permanent codes** cannot be cleared manually
+- They clear automatically after repair + successful drive cycles
 
 ### Finding your serial port
 
@@ -228,7 +204,7 @@ DTC databases are stored as CSV files in the `data/` folder.
 # macOS
 ls /dev/tty.usb*
 
-# Linux
+# Linux  
 ls /dev/ttyUSB*
 
 # Windows
@@ -245,26 +221,10 @@ ls /dev/ttyUSB*
 - [x] Readiness monitors
 - [x] Session logging (CSV/JSON)
 - [x] Multi-brand code databases
-- [ ] Interactive menu interface
+- [x] Interactive menu interface
 - [ ] ABS/Airbag module support
 - [ ] Bi-directional controls (brake service mode, etc.)
 - [ ] GUI dashboard
-
----
-
-## Contributing
-
-Contributions welcome! Especially:
-
-- DTC databases for other manufacturers
-- Protocol documentation for ABS/Airbag modules
-- Bi-directional command research
-
----
-
-## Disclaimer
-
-This tool is for **educational and diagnostic purposes only**. Clearing codes does not fix problems. Always repair the underlying issue. The authors are not responsible for any damage caused by misuse.
 
 ---
 
@@ -279,4 +239,3 @@ MIT License — Do whatever you want with it.
 - OBD-II standard: SAE J1979
 - DTC definitions: SAE J2012
 - ELM327 datasheet
-- Various OBD forums and communities
