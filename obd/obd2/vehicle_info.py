@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from ..elm import DeviceDisconnectedError
 from .base import ConnectionLostError
-from ..obd_parse import (
+from ..protocol import (
     extract_ascii_from_hex_tokens,
     is_valid_vin,
     strip_isotp_pci_from_payload,

@@ -6,7 +6,7 @@ from typing import Optional, List, Tuple
 from ..elm import ELM327
 from ..elm import DeviceDisconnectedError, CommunicationError
 
-from ..obd_parse import (
+from ..protocol import (
     group_by_ecu,
     merge_payloads,
     find_obd_response_payload,

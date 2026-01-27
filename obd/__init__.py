@@ -14,7 +14,7 @@ from .pids import (
     THROTTLE_PIDS,
 )
 
-from .obd2.scanner import OBD2Scanner
+from .obd2 import OBDScanner, OBD2Scanner
 
 __all__ = [
     "ELM327",

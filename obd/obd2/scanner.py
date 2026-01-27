@@ -4,7 +4,7 @@ from typing import Optional
 
 from .base import BaseScanner
 from .dtcs import DtcMixin
-from .pid_mixin import PidMixin
+from ..pids.pid_mixin import PidMixin
 from .readiness import ReadinessMixin
 from .vehicle_info import VehicleInfoMixin
 from .self_test import SelfTestMixin
@@ -26,3 +26,7 @@ class OBDScanner(
 
     def set_manufacturer(self, manufacturer: str):
         self.dtc_db.set_manufacturer(manufacturer)
+
+
+# Backwards/forwards compatible aliases
+OBD2Scanner = OBDScanner

@@ -17,7 +17,7 @@ import time
 from typing import Optional, List
 
 from obd import OBDScanner, DTCDatabase, ELM327
-from obd.scanner import NotConnectedError, ConnectionLostError, ScannerError
+from obd.obd2.base import NotConnectedError, ConnectionLostError, ScannerError
 from obd.logger import SessionLogger
 from obd.utils import cr_timestamp, cr_time_only, VERSION, APP_NAME
 from obd.lang import t, set_language, get_language, get_available_languages, get_language_name

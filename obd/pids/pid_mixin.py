@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 from ..pids.standard_mode01 import PIDS
 from ..pids.decode import decode_pid_response
 from ..pids.sets import DIAGNOSTIC_PIDS
-from .models import SensorReading
+from ..obd2.models import SensorReading
 
 
 class PidMixin:

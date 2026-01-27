@@ -1,3 +1,3 @@
-from .scanner import OBDScanner
+from .scanner import OBDScanner, OBD2Scanner
 
-__all__ = ["OBDScanner"]
+__all__ = ["OBDScanner", "OBD2Scanner"]
