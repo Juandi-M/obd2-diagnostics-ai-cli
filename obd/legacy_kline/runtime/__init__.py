@@ -1,4 +1,4 @@
-from .policy import KLinePolicy
+from .policy import KLinePolicy, policy_for_profile
 from .quirks import (
     QuirkSet,
     QUIRK_FORCE_HEADERS_ON,
@@ -9,10 +9,19 @@ from .quirks import (
     QUIRK_IGNORE_UNABLE_TO_CONNECT,
     QUIRK_REQUIRE_WARMUP_PROBE,
 )
-from .routing import send_at_lines, send_obd_lines, query_with_policy
+from .routing import (
+    send_at_lines,
+    send_obd_lines,
+    query_with_policy,
+    query_profile,
+    query_profile_report,
+    QueryReport,
+    QueryAttempt,
+)
 
 __all__ = [
     "KLinePolicy",
+    "policy_for_profile",
     "QuirkSet",
     "QUIRK_FORCE_HEADERS_ON",
     "QUIRK_FORCE_HEADERS_OFF",
@@ -24,4 +33,8 @@ __all__ = [
     "send_at_lines",
     "send_obd_lines",
     "query_with_policy",
+    "query_profile",
+    "query_profile_report",
+    "QueryReport",
+    "QueryAttempt",
 ]
