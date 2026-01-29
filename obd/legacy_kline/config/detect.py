@@ -10,6 +10,7 @@ from obd.legacy_kline.config.errors import KLineContext, KLineDetectError
 from obd.legacy_kline.profiles.base import KLineProfile
 from obd.legacy_kline.runtime.policy import KLinePolicy, policy_for_profile
 from obd.legacy_kline.runtime.routing import query_profile_report
+from obd.legacy_kline.runtime.probes import probe_ok
 
 
 @dataclass(frozen=True)
@@ -47,30 +48,6 @@ class DetectReport:
         return f"No profile matched. Last: {last.profile_name} -> {last.verify_reason}"
 
 
-def _probe_ok_by_patterns(probe: str, lines: List[str]) -> bool:
-    """
-    Patrón mínimo por probe usando solo el texto raw.
-    Mantenerlo simple: detectamos tokens hex con el marcador correcto.
-    """
-    up = " ".join(lines).upper()
-    hex_blob = "".join(ch for ch in up if ch in "0123456789ABCDEF")
-
-    p = probe.strip().upper()
-    if p == "0100":
-        return "4100" in hex_blob and len(hex_blob) >= 12
-    if p == "010C":
-        return "410C" in hex_blob and len(hex_blob) >= 10
-    if p == "0105":
-        return "4105" in hex_blob and len(hex_blob) >= 10
-    if p == "0902":
-        return "4902" in hex_blob and len(hex_blob) >= 10
-
-    # probe desconocido: con que haya hex decente y no error textual
-    if "NO DATA" in up or "UNABLE TO CONNECT" in up or "ERROR" in up:
-        return False
-    return len(hex_blob) >= 10
-
-
 def detect_profile_report(
     elm: ELM327,
     candidates: List[KLineProfile],
@@ -90,7 +67,6 @@ def detect_profile_report(
     base_policy = policy or KLinePolicy()
     attempts: List[CandidateAttempt] = []
 
-    last_reason = "unknown"
     for prof in candidates:
         start = time.monotonic()
 
@@ -108,13 +84,12 @@ def detect_profile_report(
             apply_error = str(e)
 
         if apply_ok:
-            # policy real por perfil (timeouts, warmup, extra delays, etc.)
             pol = policy_for_profile(prof, base=base_policy)
 
-            # Ejecutamos probes, cada uno con reporte detallado
             for probe in (prof.verify_obd or ["0100"]):
                 lines, qrep = query_profile_report(elm, probe, profile=prof, base_policy=pol)
-                ok = _probe_ok_by_patterns(probe, lines)
+                ok = probe_ok(probe, lines)
+
                 probes_detail.append(
                     ProbeAttempt(
                         probe=probe,
@@ -123,9 +98,10 @@ def detect_profile_report(
                         lines_preview=lines[:3],
                     )
                 )
+
                 if ok:
                     verify_ok = True
-                    verify_reason = f"OK: probe {probe} matched; {qrep.summary()}"
+                    verify_reason = f"OK: probe {probe}; {qrep.summary()}"
                     break
 
             if not verify_ok:
@@ -153,8 +129,6 @@ def detect_profile_report(
                 attempts=attempts,
             )
             return prof, report
-
-        last_reason = attempts[-1].verify_reason
 
     report = DetectReport(
         selected_profile=None,

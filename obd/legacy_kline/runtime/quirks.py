@@ -38,44 +38,57 @@ class QuirkSet:
 
 
 def classify_response(lines: list[str]) -> str:
-    """
-    Clasificación simple para routing:
-    - ok: hay algo útil
-    - no_data: 'NO DATA'
-    - no_connect: 'UNABLE TO CONNECT'
-    - error: 'ERROR' u otros errores genéricos
-    - empty: vacío
-    """
     if not lines:
         return "empty"
+
     up = " ".join(lines).upper()
+
     if "NO DATA" in up:
         return "no_data"
     if "UNABLE TO CONNECT" in up:
         return "no_connect"
+    if "DISCONNECTED" in up:
+        return "error"
     if "ERROR" in up:
         return "error"
     if "?" in up:
         return "invalid"
+
+    # Heurística: si no hay casi hex, no es respuesta real
+    hex_blob = "".join(ch for ch in up if ch in "0123456789ABCDEF")
+    if len(hex_blob) < 6:
+        return "invalid"
+
     return "ok"
 
 
-def is_retryable_response(lines: list[str], *, retry_on_no_data: bool, ignore_unable_to_connect: bool) -> bool:
+def is_retryable_response(
+    lines: list[str],
+    *,
+    retry_on_no_data: bool,
+    ignore_unable_to_connect: bool,
+) -> bool:
+    """
+    Aquí quedó FIX:
+    - no_connect (UNABLE TO CONNECT) por defecto NO retry (para no perder tiempo)
+    - pero si el quirk ignore_unable_to_connect está ON, entonces sí retry.
+    """
     kind = classify_response(lines)
+
     if kind in ("empty", "error", "invalid"):
         return True
+
     if kind == "no_data":
         return retry_on_no_data
+
     if kind == "no_connect":
-        # por defecto: retryable (a veces el init tarda), pero si ignore_unable... entonces también retry
-        return True if ignore_unable_to_connect else True
+        return bool(ignore_unable_to_connect)
+
     return False
 
 
 def response_is_hard_fail(lines: list[str]) -> bool:
     up = " ".join(lines).upper()
-    # Si el driver de ELM devolvió una marca así (no debería llegar aquí normalmente),
-    # lo tratamos como hard-fail.
     if "DISCONNECTED" in up:
         return True
     return False

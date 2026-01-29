@@ -1,31 +1,38 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
-ROOT="obd/legacy_kline"
+# folder donde vive este script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ ! -d "$ROOT" ]]; then
-  echo "ERROR: directory not found: $ROOT" >&2
+ROOT_DIR="$SCRIPT_DIR/obd/legacy_kline"
+OUTPUT="$SCRIPT_DIR/legacy_kline_dump.txt"
+
+if [[ ! -d "$ROOT_DIR" ]]; then
+  echo "ERROR: No existe el directorio: $ROOT_DIR" >&2
+  echo "Tip: tu repo tiene 'obd/legacy_kline', no 'legacy_kline' en root." >&2
   exit 1
 fi
 
-# Extensiones incluidas (ajustá aquí si querés)
-EXT_REGEX='\.(py|md|txt)$'
+> "$OUTPUT"
 
-# Si querés incluir TODO (incluyendo __pycache__ o binarios), cambia el find.
-find "$ROOT" -type f \
-  ! -path "*/__pycache__/*" \
-  ! -path "*/.pytest_cache/*" \
-  ! -path "*/.mypy_cache/*" \
-  -print0 \
-| sort -z \
-| while IFS= read -r -d '' file; do
-    if [[ "$file" =~ $EXT_REGEX ]]; then
-      echo ""
-      echo "============================================================"
-      echo "FILE: $file"
-      echo "============================================================"
-      cat "$file"
-      echo ""
-    fi
-  done
-echo "=== END OF DUMP ==="
+{
+  echo "===== LEGACY_KLINE FULL DUMP ====="
+  echo "Generated at: $(date)"
+  echo "Root: $ROOT_DIR"
+  echo ""
+} >> "$OUTPUT"
+
+find "$ROOT_DIR" -type f | sort | while read -r file; do
+  rel="${file#"$SCRIPT_DIR/"}"
+  {
+    echo ""
+    echo "========================================"
+    echo "FILE: $rel"
+    echo "========================================"
+    echo ""
+    cat "$file"
+    echo ""
+  } >> "$OUTPUT"
+done
+
+echo "Done. Output -> $OUTPUT"

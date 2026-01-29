@@ -1,7 +1,12 @@
+===== LEGACY_KLINE FULL DUMP =====
+Generated at: Thu Jan 29 16:43:42 CST 2026
+Root: /Users/juandi/Documents/github/OBD-II-python-fulldatabase/obd/legacy_kline
 
-============================================================
+
+========================================
 FILE: obd/legacy_kline/__init__.py
-============================================================
+========================================
+
 """
 Legacy K-Line support (ISO9141 / KWP2000) via ELM327.
 
@@ -9,33 +14,50 @@ Stage 2.5: detection + apply + verify + basic routing.
 """
 
 from .profiles.base import KLineProfile
+
 from .runtime.policy import KLinePolicy
-from .config.detect import detect_profile
 from .config.apply import apply_profile
 from .config.verify import verify_profile
+from .config.detect import detect_profile, detect_profile_report
+from .session import LegacyKLineSession
+from .scanner import LegacyKLineScanner
 
 __all__ = [
     "KLineProfile",
     "KLinePolicy",
-    "detect_profile",
     "apply_profile",
     "verify_profile",
+    "detect_profile",
+    "detect_profile_report",
+    "LegacyKLineSession",
+    "LegacyKLineScanner",
 ]
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/config/__init__.py
-============================================================
+========================================
+
+from __future__ import annotations
+
 from .errors import (
     KLineError,
     KLineProfileError,
     KLineApplyError,
     KLineVerifyError,
     KLineDetectError,
+    KLineContext,
 )
+
 from .apply import apply_profile
 from .verify import verify_profile
-from .detect import detect_profile
+from .detect import (
+    detect_profile,
+    detect_profile_report,
+    DetectReport,
+    CandidateAttempt,
+    ProbeAttempt,
+)
 
 __all__ = [
     "KLineError",
@@ -43,24 +65,50 @@ __all__ = [
     "KLineApplyError",
     "KLineVerifyError",
     "KLineDetectError",
+    "KLineContext",
     "apply_profile",
     "verify_profile",
     "detect_profile",
+    "detect_profile_report",
+    "DetectReport",
+    "CandidateAttempt",
+    "ProbeAttempt",
 ]
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/config/apply.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Optional, Sequence
 
 from obd.elm.elm327 import ELM327
-from obd.legacy_kline.config.errors import KLineApplyError, KLineProfileError
+from obd.legacy_kline.config.errors import KLineApplyError, KLineContext, KLineProfileError
 from obd.legacy_kline.profiles.base import KLineProfile
 from obd.legacy_kline.runtime.routing import send_at_lines
+from obd.legacy_kline.runtime.quirks import (
+    QUIRK_FORCE_HEADERS_ON,
+    QUIRK_FORCE_HEADERS_OFF,
+    QUIRK_EXTRA_INTER_COMMAND_DELAY,
+)
+
+
+DEFAULT_RESET_AT: Sequence[str] = (
+    # Reset suave sin ATZ duro (algunos clones se ponen raros con ATZ seguido)
+    "AT D",   # defaults
+    "AT E0",  # echo off
+    "AT L0",  # linefeeds off
+    "AT S0",  # spaces off
+    "AT H1",  # headers on (tu driver prefiere headers ON por multi-ECU)
+)
+
+
+def _sleep(s: float) -> None:
+    if s and s > 0:
+        time.sleep(s)
 
 
 def apply_profile(
@@ -68,46 +116,207 @@ def apply_profile(
     profile: KLineProfile,
     *,
     delay_override_s: Optional[float] = None,
+    reset_before_apply: bool = True,
+    reset_at_commands: Sequence[str] = DEFAULT_RESET_AT,
 ) -> None:
     """
-    Aplica un perfil al ELM (AT commands).
-    No hace verify; solo configura.
+    Configura el ELM con el perfil K-Line.
+
+    - Opcional: reset suave previo para evitar “estado pegado” entre candidatos.
+    - Aplica quirks básicos (headers on/off, delay extra).
+    - No hace verify (solo configura).
     """
     try:
         profile.validate()
     except Exception as e:
-        raise KLineProfileError(str(e)) from e
+        raise KLineProfileError(
+            f"Invalid K-Line profile: {e}",
+            ctx=KLineContext(profile_name=profile.name),
+            cause=e,
+        ) from e
 
-    delay = profile.inter_command_delay_s if delay_override_s is None else delay_override_s
+    base_delay = profile.inter_command_delay_s if delay_override_s is None else delay_override_s
+
+    # Quirks que afectan timing/headers
+    extra_delay = 0.0
+    if profile.quirks.get(QUIRK_EXTRA_INTER_COMMAND_DELAY, False):
+        extra_delay = 0.08  # conservador; se puede tunear luego
+
+    final_delay = base_delay + extra_delay
 
     try:
+        if reset_before_apply:
+            for cmd in reset_at_commands:
+                send_at_lines(elm, cmd, timeout_s=max(elm.timeout, profile.request_timeout_s))
+                _sleep(final_delay)
+
+        # Headers override por quirk
+        if profile.quirks.get(QUIRK_FORCE_HEADERS_ON, False):
+            send_at_lines(elm, "AT H1", timeout_s=max(elm.timeout, profile.request_timeout_s))
+            _sleep(final_delay)
+        if profile.quirks.get(QUIRK_FORCE_HEADERS_OFF, False):
+            send_at_lines(elm, "AT H0", timeout_s=max(elm.timeout, profile.request_timeout_s))
+            _sleep(final_delay)
+
+        # Apply init sequence
         for cmd in profile.init_at:
             send_at_lines(elm, cmd, timeout_s=max(elm.timeout, profile.request_timeout_s))
-            if delay and delay > 0:
-                time.sleep(delay)
+            _sleep(final_delay)
 
         for cmd in profile.options_at:
             send_at_lines(elm, cmd, timeout_s=max(elm.timeout, profile.request_timeout_s))
-            if delay and delay > 0:
-                time.sleep(delay)
+            _sleep(final_delay)
 
     except Exception as e:
-        raise KLineApplyError(f"Failed applying profile '{profile.name}': {e}") from e
+        raise KLineApplyError(
+            f"Failed applying profile",
+            ctx=KLineContext(profile_name=profile.name),
+            cause=e,
+        ) from e
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/config/detect.py
-============================================================
+========================================
+
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from obd.elm.elm327 import ELM327
 from obd.legacy_kline.config.apply import apply_profile
-from obd.legacy_kline.config.errors import KLineDetectError
-from obd.legacy_kline.config.verify import verify_profile
+from obd.legacy_kline.config.errors import KLineContext, KLineDetectError
 from obd.legacy_kline.profiles.base import KLineProfile
-from obd.legacy_kline.runtime.policy import KLinePolicy
+from obd.legacy_kline.runtime.policy import KLinePolicy, policy_for_profile
+from obd.legacy_kline.runtime.routing import query_profile_report
+from obd.legacy_kline.runtime.probes import probe_ok
+
+
+@dataclass(frozen=True)
+class ProbeAttempt:
+    probe: str
+    ok: bool
+    query_summary: str
+    lines_preview: List[str]
+
+
+@dataclass(frozen=True)
+class CandidateAttempt:
+    profile_name: str
+    family: str
+    apply_ok: bool
+    apply_error: Optional[str]
+    verify_ok: bool
+    verify_reason: str
+    elapsed_ms: int
+    probes: List[ProbeAttempt] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DetectReport:
+    selected_profile: Optional[str]
+    selected_reason: Optional[str]
+    attempts: List[CandidateAttempt] = field(default_factory=list)
+
+    def summary(self) -> str:
+        if self.selected_profile:
+            return f"Selected: {self.selected_profile} ({self.selected_reason})"
+        if not self.attempts:
+            return "No attempts"
+        last = self.attempts[-1]
+        return f"No profile matched. Last: {last.profile_name} -> {last.verify_reason}"
+
+
+def detect_profile_report(
+    elm: ELM327,
+    candidates: List[KLineProfile],
+    *,
+    policy: Optional[KLinePolicy] = None,
+) -> Tuple[KLineProfile, DetectReport]:
+    """
+    Detecta el mejor perfil probando candidatos:
+    - apply_profile()
+    - verify por probes con query_profile_report() (para evidencia real)
+
+    Retorna (profile ganador, DetectReport)
+    """
+    if not candidates:
+        raise KLineDetectError("No K-Line profile candidates provided")
+
+    base_policy = policy or KLinePolicy()
+    attempts: List[CandidateAttempt] = []
+
+    for prof in candidates:
+        start = time.monotonic()
+
+        apply_ok = True
+        apply_error: Optional[str] = None
+
+        probes_detail: List[ProbeAttempt] = []
+        verify_ok = False
+        verify_reason = "not verified"
+
+        try:
+            apply_profile(elm, prof, reset_before_apply=True)
+        except Exception as e:
+            apply_ok = False
+            apply_error = str(e)
+
+        if apply_ok:
+            pol = policy_for_profile(prof, base=base_policy)
+
+            for probe in (prof.verify_obd or ["0100"]):
+                lines, qrep = query_profile_report(elm, probe, profile=prof, base_policy=pol)
+                ok = probe_ok(probe, lines)
+
+                probes_detail.append(
+                    ProbeAttempt(
+                        probe=probe,
+                        ok=ok,
+                        query_summary=qrep.summary(),
+                        lines_preview=lines[:3],
+                    )
+                )
+
+                if ok:
+                    verify_ok = True
+                    verify_reason = f"OK: probe {probe}; {qrep.summary()}"
+                    break
+
+            if not verify_ok:
+                verify_reason = f"All probes failed: {[p.probe for p in probes_detail]}"
+
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+
+        attempts.append(
+            CandidateAttempt(
+                profile_name=prof.name,
+                family=prof.family,
+                apply_ok=apply_ok,
+                apply_error=apply_error,
+                verify_ok=verify_ok,
+                verify_reason=verify_reason if apply_ok else f"apply failed: {apply_error}",
+                elapsed_ms=elapsed_ms,
+                probes=probes_detail,
+            )
+        )
+
+        if verify_ok:
+            report = DetectReport(
+                selected_profile=prof.name,
+                selected_reason=verify_reason,
+                attempts=attempts,
+            )
+            return prof, report
+
+    report = DetectReport(
+        selected_profile=None,
+        selected_reason=None,
+        attempts=attempts,
+    )
+    raise KLineDetectError(report.summary(), ctx=KLineContext(), cause=None)
 
 
 def detect_profile(
@@ -117,33 +326,55 @@ def detect_profile(
     policy: Optional[KLinePolicy] = None,
 ) -> Tuple[KLineProfile, str]:
     """
-    Prueba perfiles candidatos: apply + verify.
+    Backwards-compatible:
     Retorna (profile ganador, reason).
     """
-    if not candidates:
-        raise KLineDetectError("No K-Line profile candidates provided")
-
-    pol = policy or KLinePolicy()
-
-    last_reason = ""
-    for prof in candidates:
-        try:
-            apply_profile(elm, prof)
-            ok, reason = verify_profile(elm, prof, policy=pol)
-            if ok:
-                return prof, reason
-            last_reason = f"{prof.name}: {reason}"
-        except Exception as e:
-            last_reason = f"{prof.name}: exception {e}"
-
-    raise KLineDetectError(f"No profile matched. Last: {last_reason}")
+    prof, report = detect_profile_report(elm, candidates, policy=policy)
+    return prof, report.selected_reason or report.summary()
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/config/errors.py
-============================================================
+========================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional
+
+
+@dataclass(frozen=True)
+class KLineContext:
+    profile_name: Optional[str] = None
+    at_or_obd_command: Optional[str] = None
+    lines: Optional[List[str]] = None
+
+
 class KLineError(Exception):
-    pass
+    """
+    Base exception para legacy K-Line.
+    Incluye contexto útil para debugging.
+    """
+
+    def __init__(self, message: str, *, ctx: Optional[KLineContext] = None, cause: Exception | None = None):
+        super().__init__(message)
+        self.ctx = ctx
+        self.cause = cause
+
+    def __str__(self) -> str:
+        base = super().__str__()
+        extra = []
+        if self.ctx:
+            if self.ctx.profile_name:
+                extra.append(f"profile={self.ctx.profile_name}")
+            if self.ctx.at_or_obd_command:
+                extra.append(f"cmd={self.ctx.at_or_obd_command}")
+            if self.ctx.lines:
+                preview = self.ctx.lines[:3]
+                extra.append(f"lines={preview}")
+        if extra:
+            base += " [" + " | ".join(extra) + "]"
+        return base
 
 
 class KLineProfileError(KLineError):
@@ -162,63 +393,71 @@ class KLineDetectError(KLineError):
     pass
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/config/verify.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 from typing import List, Tuple
 
 from obd.elm.elm327 import ELM327
-from obd.legacy_kline.config.errors import KLineVerifyError
+from obd.legacy_kline.config.errors import KLineContext, KLineVerifyError
 from obd.legacy_kline.profiles.base import KLineProfile
 from obd.legacy_kline.runtime.policy import KLinePolicy
-from obd.legacy_kline.runtime.routing import query_with_policy
+from obd.legacy_kline.runtime.routing import query_profile
+from obd.legacy_kline.runtime.probes import probe_ok, strip_noise, extract_hex_blob
 
 
-def _is_good_vehicle_response(lines: List[str]) -> bool:
-    up = " ".join(lines).upper()
-    if not lines:
-        return False
-    if "NO DATA" in up or "UNABLE TO CONNECT" in up or "ERROR" in up:
-        return False
-    # Respuesta OBD típica a 0100 incluye 4100 (pero algunos ECUs legacy son raros)
-    # Aceptamos cualquier hex-ish que no sea error.
-    return True
-
-
-def verify_profile(elm: ELM327, profile: KLineProfile, *, policy: KLinePolicy) -> Tuple[bool, str]:
+def verify_profile(
+    elm: ELM327,
+    profile: KLineProfile,
+    *,
+    policy: KLinePolicy,
+) -> Tuple[bool, str]:
     """
     Verifica que el perfil realmente logra hablar con el vehículo.
     Devuelve (ok, reason).
+
+    IMPORTANTE: Usa query_profile() => aplica quirks/policy/warmup real.
     """
     probes = profile.verify_obd or ["0100"]
 
     try:
         for probe in probes:
-            lines = query_with_policy(elm, probe, policy=policy, timeout_s=profile.request_timeout_s)
-            if _is_good_vehicle_response(lines):
-                return True, f"OK: probe {probe} -> {lines[:3]}"
+            raw_lines = query_profile(elm, probe, profile=profile, base_policy=policy)
+
+            if probe_ok(probe, raw_lines):
+                cleaned = strip_noise(raw_lines)
+                blob = extract_hex_blob(cleaned if cleaned else raw_lines)
+                return True, f"OK: probe {probe} matched; lines={raw_lines[:3]} hex={blob[:24]}"
 
         return False, f"All probes failed: {probes}"
 
     except Exception as e:
-        raise KLineVerifyError(f"Verify failed for '{profile.name}': {e}") from e
+        raise KLineVerifyError(
+            "Verify failed",
+            ctx=KLineContext(profile_name=profile.name),
+            cause=e,
+        ) from e
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/notes/command_cheatsheet.md
-============================================================
+========================================
 
 
-============================================================
+
+========================================
 FILE: obd/legacy_kline/notes/README.md
-============================================================
+========================================
 
 
-============================================================
+
+========================================
 FILE: obd/legacy_kline/profiles/__init__.py
-============================================================
+========================================
+
 from .base import KLineProfile
 from .iso9141_2 import ISO9141_2
 from .kwp2000_5baud import KWP2000_5BAUD
@@ -234,9 +473,10 @@ __all__ = [
 ]
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/profiles/base.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -248,120 +488,182 @@ class KLineProfile:
     """
     Describe cómo configurar el ELM327 para hablar con un vehículo legacy (K-Line).
 
-    Importante:
-    - Este objeto NO hace IO.
-    - Solo define comandos AT, timeouts/delays y probes de verificación.
+    Esta clase es intencionalmente conservadora:
+    - Solo define 'AT commands' que suelen ser soportados por la mayoría de ELM/clones.
+    - Evita knobs experimentales (ST/AT/AL/etc.) hasta que tengamos evidencia del carro/adaptador.
+
+    NOTA:
+    - El IO lo hace config/apply + runtime/routing
     """
     name: str
+    family: str  # "iso9141_2" | "kwp2000_5baud" | "kwp2000_fast"
 
-    # "iso9141_2" | "kwp2000_5baud" | "kwp2000_fast"
-    family: str
-
-    # Lista de comandos AT (strings completos, ej: "AT SP 3")
+    # Secuencia base para activar protocolo, headers, etc.
     init_at: List[str] = field(default_factory=list)
 
-    # Opciones extra AT (se aplican después de init_at)
+    # Opciones adicionales (conservadoras)
     options_at: List[str] = field(default_factory=list)
 
-    # Probes para verificar comunicación con vehículo (OBD requests típicos)
-    # Ej: ["0100", "0902"]
-    verify_obd: List[str] = field(default_factory=lambda: ["0100"])
+    # Probes OBD para verificar comunicación
+    verify_obd: List[str] = field(default_factory=lambda: ["0100", "0902"])
 
-    # Timeouts/delays sugeridos
-    request_timeout_s: float = 3.0
-    inter_command_delay_s: float = 0.05
+    # Timeouts/delays recomendados para ese perfil
+    request_timeout_s: float = 4.0
+    inter_command_delay_s: float = 0.08
 
-    # Flags para workarounds
+    # Quirks (flags) para workarounds.
+    # Se consumen en config/apply y luego se integrarán fuerte en runtime/routing.
     quirks: Dict[str, bool] = field(default_factory=dict)
 
+    # Notas humanas para debugging
     notes: Optional[str] = None
 
     def validate(self) -> None:
         if not self.name.strip():
             raise ValueError("KLineProfile.name is empty")
         if self.family not in {"iso9141_2", "kwp2000_5baud", "kwp2000_fast"}:
-            raise ValueError(f"Unsupported KLine family: {self.family}")
+            raise ValueError(f"Unsupported K-Line family: {self.family}")
+
+        # seguridad: no mandes comandos vacíos
+        for seq in (self.init_at, self.options_at):
+            for cmd in seq:
+                if not isinstance(cmd, str) or not cmd.strip():
+                    raise ValueError(f"Invalid AT command in profile '{self.name}': {cmd!r}")
+
+        # probes básicos
+        for p in self.verify_obd:
+            if not isinstance(p, str) or not p.strip():
+                raise ValueError(f"Invalid verify probe in profile '{self.name}': {p!r}")
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/profiles/iso9141_2.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 from obd.legacy_kline.profiles.base import KLineProfile
-
+from obd.legacy_kline.runtime.quirks import (
+    QUIRK_RETRY_ON_NO_DATA,
+    QUIRK_EXTRA_INTER_COMMAND_DELAY,
+)
 
 ISO9141_2 = KLineProfile(
     name="ISO9141-2 (ATSP3)",
     family="iso9141_2",
     init_at=[
-        # NO hacemos ATZ aquí; initialize_elm() ya hace init global del adaptador
+        # Selección de protocolo
         "AT SP 3",
-        "AT H1",   # headers on (tu ELM ya lo tiene como default)
-        "AT L0",   # linefeeds off (limpia output)
-        "AT S0",   # spaces off
+        # Salida limpia (muy compatible con clones)
+        "AT E0",
+        "AT L0",
+        "AT S0",
+        # Headers ON ayuda a parsing multi-ECU y debug
+        "AT H1",
     ],
     options_at=[
-        # Opcionales; si te da problemas con ciertos ELM clones, se pueden togglear
-        "AT E0",   # echo off
+        # Opcionales conservadores: por ahora dejamos vacío.
+        # (Evitar AT ST/AT AT/AT AL hasta medir el TD5 real)
     ],
-    verify_obd=["0100", "0902"],
-    request_timeout_s=3.5,
-    inter_command_delay_s=0.05,
+    verify_obd=[
+        # Probes típicos:
+        "0100",  # soporte mode01
+        "010C",  # RPM (suele responder si mode01 vive)
+        "0105",  # coolant temp
+        "0902",  # VIN (si soporta mode09)
+    ],
+    request_timeout_s=4.0,
+    inter_command_delay_s=0.07,
+    quirks={
+        # ISO9141 a veces responde lento o con NO DATA intermitente
+        QUIRK_RETRY_ON_NO_DATA: True,
+        QUIRK_EXTRA_INTER_COMMAND_DELAY: True,
+    },
+    notes="ISO9141-2 suele ser estable pero lento; usar probes 010C/0105 ayuda a confirmar vida real.",
 )
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/profiles/kwp2000_5baud.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 from obd.legacy_kline.profiles.base import KLineProfile
-
+from obd.legacy_kline.runtime.quirks import (
+    QUIRK_RETRY_ON_NO_DATA,
+    QUIRK_EXTRA_INTER_COMMAND_DELAY,
+)
 
 KWP2000_5BAUD = KLineProfile(
     name="KWP2000 5-baud init (ATSP4)",
     family="kwp2000_5baud",
     init_at=[
         "AT SP 4",
-        "AT H1",
+        "AT E0",
         "AT L0",
         "AT S0",
-        "AT E0",
+        "AT H1",
     ],
-    verify_obd=["0100", "0902"],
-    request_timeout_s=4.0,
-    inter_command_delay_s=0.08,
+    verify_obd=[
+        "0100",
+        "010C",
+        "0105",
+        "0902",
+    ],
+    # 5-baud init puede tardar más
+    request_timeout_s=4.5,
+    inter_command_delay_s=0.10,
+    quirks={
+        QUIRK_RETRY_ON_NO_DATA: True,
+        QUIRK_EXTRA_INTER_COMMAND_DELAY: True,
+    },
+    notes="KWP 5-baud init suele necesitar más paciencia; timeouts/delays más altos.",
 )
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/profiles/kwp2000_fast.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 from obd.legacy_kline.profiles.base import KLineProfile
-
+from obd.legacy_kline.runtime.quirks import (
+    QUIRK_RETRY_ON_NO_DATA,
+    QUIRK_EXTRA_INTER_COMMAND_DELAY,
+)
 
 KWP2000_FAST = KLineProfile(
     name="KWP2000 fast init (ATSP5)",
     family="kwp2000_fast",
     init_at=[
         "AT SP 5",
-        "AT H1",
+        "AT E0",
         "AT L0",
         "AT S0",
-        "AT E0",
+        "AT H1",
     ],
-    verify_obd=["0100", "0902"],
-    request_timeout_s=4.0,
-    inter_command_delay_s=0.08,
+    verify_obd=[
+        "0100",
+        "010C",
+        "0105",
+        "0902",
+    ],
+    request_timeout_s=4.5,
+    inter_command_delay_s=0.09,
+    quirks={
+        QUIRK_RETRY_ON_NO_DATA: True,
+        QUIRK_EXTRA_INTER_COMMAND_DELAY: True,
+    },
+    notes="KWP fast init puede ser más rápido que 5-baud, pero igual requiere delay para no 'spamear' al ECU.",
 )
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/profiles/land_rover_td5.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 from typing import List
@@ -370,28 +672,56 @@ from obd.legacy_kline.profiles.base import KLineProfile
 from obd.legacy_kline.profiles.iso9141_2 import ISO9141_2
 from obd.legacy_kline.profiles.kwp2000_5baud import KWP2000_5BAUD
 from obd.legacy_kline.profiles.kwp2000_fast import KWP2000_FAST
+from obd.legacy_kline.runtime.quirks import (
+    QUIRK_RETRY_ON_NO_DATA,
+    QUIRK_EXTRA_INTER_COMMAND_DELAY,
+)
+
+
+def _clone_with(profile: KLineProfile, *, name_suffix: str, verify_obd: List[str], quirks_extra: dict) -> KLineProfile:
+    """
+    Como KLineProfile es frozen, hacemos “clone” limpio con overrides.
+    """
+    return KLineProfile(
+        name=f"{profile.name} {name_suffix}",
+        family=profile.family,
+        init_at=list(profile.init_at),
+        options_at=list(profile.options_at),
+        verify_obd=verify_obd,
+        request_timeout_s=profile.request_timeout_s,
+        inter_command_delay_s=profile.inter_command_delay_s,
+        quirks={**profile.quirks, **quirks_extra},
+        notes=profile.notes,
+    )
 
 
 def td5_candidates() -> List[KLineProfile]:
     """
-    Land Rover TD5 (y vehículos similares) pueden caer en:
-    - ISO9141-2 (ATSP3)
-    - KWP2000 5-baud (ATSP4)
-    - KWP2000 fast (ATSP5)
-
-    En vez de casarnos con uno, probamos.
+    TD5 (y otros Land Rover de esa era) pueden responder por ISO9141 o KWP.
+    El orden acá es intencional: muchos TD5 terminan en KWP (pero no apostamos a ciegas).
     """
+    # Probes recomendados para “vida real”
+    # 010C/0105 suelen confirmar si hay comunicación, más que 0100 solo.
+    td5_probes = ["0100", "010C", "0105", "0902"]
+
+    # Algunos ECUs TD5 pueden dar NO DATA intermitente al principio → retry
+    td5_quirks = {
+        QUIRK_RETRY_ON_NO_DATA: True,
+        QUIRK_EXTRA_INTER_COMMAND_DELAY: True,
+    }
+
     return [
-        KWP2000_5BAUD,
-        KWP2000_FAST,
-        ISO9141_2,
+        _clone_with(KWP2000_5BAUD, name_suffix="[TD5]", verify_obd=td5_probes, quirks_extra=td5_quirks),
+        _clone_with(KWP2000_FAST, name_suffix="[TD5]", verify_obd=td5_probes, quirks_extra=td5_quirks),
+        _clone_with(ISO9141_2, name_suffix="[TD5]", verify_obd=td5_probes, quirks_extra=td5_quirks),
     ]
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/runtime/__init__.py
-============================================================
-from .policy import KLinePolicy
+========================================
+
+from .policy import KLinePolicy, policy_for_profile
 from .quirks import (
     QuirkSet,
     QUIRK_FORCE_HEADERS_ON,
@@ -402,10 +732,19 @@ from .quirks import (
     QUIRK_IGNORE_UNABLE_TO_CONNECT,
     QUIRK_REQUIRE_WARMUP_PROBE,
 )
-from .routing import send_at_lines, send_obd_lines, query_with_policy
+from .routing import (
+    send_at_lines,
+    send_obd_lines,
+    query_with_policy,
+    query_profile,
+    query_profile_report,
+    QueryReport,
+    QueryAttempt,
+)
 
 __all__ = [
     "KLinePolicy",
+    "policy_for_profile",
     "QuirkSet",
     "QUIRK_FORCE_HEADERS_ON",
     "QUIRK_FORCE_HEADERS_OFF",
@@ -417,35 +756,211 @@ __all__ = [
     "send_at_lines",
     "send_obd_lines",
     "query_with_policy",
+    "query_profile",
+    "query_profile_report",
+    "QueryReport",
+    "QueryAttempt",
 ]
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/runtime/policy.py
-============================================================
+========================================
+
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Optional
+
+from obd.legacy_kline.profiles.base import KLineProfile
+from obd.legacy_kline.runtime.quirks import (
+    QuirkSet,
+    QUIRK_EXTRA_INTER_REQUEST_DELAY,
+    QUIRK_REQUIRE_WARMUP_PROBE,
+)
 
 
 @dataclass(frozen=True)
 class KLinePolicy:
     """
-    Policy runtime para retries/timeout/delays.
+    Policy runtime para K-Line:
+    - retries: número de reintentos adicionales (total intentos = retries + 1)
+    - timeout_s: timeout por request (si no se pasa override)
+    - inter_request_delay_s: delay entre requests (ayuda a ECUs sensibles)
+    - initial_settle_delay_s: delay inicial antes del primer request (después de apply)
+    - backoff_s: delay extra incremental por intento (0 = off)
+    - warmup_enabled: si se hace warmup probe antes de probes “reales”
+    - warmup_probe: comando OBD para calentar (default: "0100")
+    - warmup_attempts: cuántas veces intentar warmup
+    - warmup_delay_s: delay después de warmup
     """
     retries: int = 1
-    timeout_s: float = 3.0
+    timeout_s: float = 4.0
 
-    # Delay pequeño entre requests (ayuda con K-Line, algunos ECUs odian spam)
-    inter_request_delay_s: float = 0.05
+    inter_request_delay_s: float = 0.08
+    initial_settle_delay_s: float = 0.12
 
-    # Si un ECU se duerme o el init requiere aire, esto ayuda
-    initial_settle_delay_s: float = 0.10
+    backoff_s: float = 0.05
+
+    warmup_enabled: bool = False
+    warmup_probe: str = "0100"
+    warmup_attempts: int = 1
+    warmup_delay_s: float = 0.10
+
+    def with_overrides(
+        self,
+        *,
+        retries: Optional[int] = None,
+        timeout_s: Optional[float] = None,
+        inter_request_delay_s: Optional[float] = None,
+        initial_settle_delay_s: Optional[float] = None,
+        backoff_s: Optional[float] = None,
+        warmup_enabled: Optional[bool] = None,
+        warmup_probe: Optional[str] = None,
+        warmup_attempts: Optional[int] = None,
+        warmup_delay_s: Optional[float] = None,
+    ) -> "KLinePolicy":
+        p = self
+        if retries is not None:
+            p = replace(p, retries=retries)
+        if timeout_s is not None:
+            p = replace(p, timeout_s=timeout_s)
+        if inter_request_delay_s is not None:
+            p = replace(p, inter_request_delay_s=inter_request_delay_s)
+        if initial_settle_delay_s is not None:
+            p = replace(p, initial_settle_delay_s=initial_settle_delay_s)
+        if backoff_s is not None:
+            p = replace(p, backoff_s=backoff_s)
+        if warmup_enabled is not None:
+            p = replace(p, warmup_enabled=warmup_enabled)
+        if warmup_probe is not None:
+            p = replace(p, warmup_probe=warmup_probe)
+        if warmup_attempts is not None:
+            p = replace(p, warmup_attempts=warmup_attempts)
+        if warmup_delay_s is not None:
+            p = replace(p, warmup_delay_s=warmup_delay_s)
+        return p
 
 
-============================================================
+def policy_for_profile(
+    profile: KLineProfile,
+    *,
+    base: Optional[KLinePolicy] = None,
+) -> KLinePolicy:
+    """
+    Construye una policy a partir de:
+    - base policy
+    - request_timeout_s del perfil
+    - quirks del perfil
+    """
+    p = base or KLinePolicy()
+    qs = QuirkSet.from_profile_dict(profile.quirks)
+
+    # timeout por perfil
+    p = p.with_overrides(timeout_s=profile.request_timeout_s)
+
+    # si el perfil pide warmup explícito
+    if qs.enabled(QUIRK_REQUIRE_WARMUP_PROBE, default=False):
+        p = p.with_overrides(warmup_enabled=True, warmup_attempts=max(1, p.warmup_attempts))
+
+    # extra delay entre requests
+    if qs.enabled(QUIRK_EXTRA_INTER_REQUEST_DELAY, default=False):
+        # subimos un poco el delay conservadoramente
+        p = p.with_overrides(inter_request_delay_s=max(p.inter_request_delay_s, 0.12))
+
+    return p
+
+
+========================================
+FILE: obd/legacy_kline/runtime/probes.py
+========================================
+
+from __future__ import annotations
+
+import re
+from typing import List
+
+_HEX_RE = re.compile(r"^[0-9A-F]+$")
+
+
+def strip_noise(lines: List[str]) -> List[str]:
+    """
+    El ELM puede meter ruido tipo: SEARCHING..., BUS INIT..., etc.
+    Removemos lo obvio pero sin destruir payload.
+    """
+    drop_prefix = (
+        "SEARCHING",
+        "BUS INIT",
+        "STOPPED",
+        "OK",
+        "ELM",
+    )
+    cleaned: List[str] = []
+    for ln in lines:
+        up = ln.strip().upper()
+        if not up:
+            continue
+        if any(up.startswith(x) for x in drop_prefix):
+            continue
+        if up in (">", "?"):
+            continue
+        cleaned.append(ln.strip())
+    return cleaned
+
+
+def extract_hex_blob(lines: List[str]) -> str:
+    """
+    Une líneas y deja solo hex (tolerante a headers/texto).
+    """
+    up = " ".join(lines).upper()
+    return "".join(ch for ch in up if ch in "0123456789ABCDEF")
+
+
+def looks_like_hex(hex_blob: str) -> bool:
+    return bool(hex_blob) and (_HEX_RE.match(hex_blob) is not None)
+
+
+def matches_probe_pattern(probe: str, hex_blob: str) -> bool:
+    """
+    Patrones mínimos “reales” por probe.
+    """
+    p = probe.strip().upper()
+    if p == "0100":
+        return "4100" in hex_blob and len(hex_blob) >= 12
+    if p == "010C":
+        return "410C" in hex_blob and len(hex_blob) >= 10
+    if p == "0105":
+        return "4105" in hex_blob and len(hex_blob) >= 10
+    if p == "0902":
+        return "4902" in hex_blob and len(hex_blob) >= 10
+
+    # probe desconocido: con que haya hex razonable
+    return looks_like_hex(hex_blob) and len(hex_blob) >= 8
+
+
+def probe_ok(probe: str, raw_lines: List[str]) -> bool:
+    """
+    Evalúa un probe usando:
+    - limpieza de ruido
+    - extracción de hex
+    - match por patrón
+    - filtro rápido de errores textuales
+    """
+    up = " ".join(raw_lines).upper()
+    if not raw_lines:
+        return False
+    if "NO DATA" in up or "UNABLE TO CONNECT" in up or "ERROR" in up or "DISCONNECTED" in up:
+        return False
+
+    cleaned = strip_noise(raw_lines)
+    blob = extract_hex_blob(cleaned if cleaned else raw_lines)
+    return matches_probe_pattern(probe, blob) or (looks_like_hex(blob) and len(blob) >= 10)
+
+
+========================================
 FILE: obd/legacy_kline/runtime/quirks.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -455,18 +970,21 @@ from typing import Dict, Optional
 # Quirk keys (convención)
 QUIRK_FORCE_HEADERS_ON = "force_headers_on"
 QUIRK_FORCE_HEADERS_OFF = "force_headers_off"
+
 QUIRK_EXTRA_INTER_REQUEST_DELAY = "extra_inter_request_delay"
 QUIRK_EXTRA_INTER_COMMAND_DELAY = "extra_inter_command_delay"
+
 QUIRK_RETRY_ON_NO_DATA = "retry_on_no_data"
 QUIRK_IGNORE_UNABLE_TO_CONNECT = "ignore_unable_to_connect"
+
 QUIRK_REQUIRE_WARMUP_PROBE = "require_warmup_probe"
 
 
 @dataclass(frozen=True)
 class QuirkSet:
     """
-    Conjunto de flags/parametros para workarounds K-Line.
-    Puedes guardarlo como dict en profile.quirks, pero esta clase ayuda a tiparlo.
+    Flags/params para workarounds.
+    Por ahora usamos flags (bool). params queda listo para tuning futuro.
     """
     flags: Dict[str, bool]
     params: Dict[str, float]
@@ -482,40 +1000,87 @@ class QuirkSet:
         return float(self.params.get(key, default))
 
 
-def is_retryable_response(lines: list[str], *, retry_on_no_data: bool) -> bool:
-    up = " ".join(lines).upper()
+def classify_response(lines: list[str]) -> str:
+    """
+    Clasificación simple para routing:
+    - ok: hay algo útil
+    - no_data: 'NO DATA'
+    - no_connect: 'UNABLE TO CONNECT'
+    - error: 'ERROR' u otros errores genéricos
+    - empty: vacío
+    """
     if not lines:
-        return True
-    if "ERROR" in up:
-        return True
+        return "empty"
+    up = " ".join(lines).upper()
+    if "NO DATA" in up:
+        return "no_data"
     if "UNABLE TO CONNECT" in up:
+        return "no_connect"
+    if "ERROR" in up:
+        return "error"
+    if "?" in up:
+        return "invalid"
+    return "ok"
+
+
+def is_retryable_response(
+    lines: list[str],
+    *,
+    retry_on_no_data: bool,
+    ignore_unable_to_connect: bool,
+) -> bool:
+    """
+    Aquí quedó FIX:
+    - no_connect (UNABLE TO CONNECT) por defecto NO retry (para no perder tiempo)
+    - pero si el quirk ignore_unable_to_connect está ON, entonces sí retry.
+    """
+    kind = classify_response(lines)
+
+    if kind in ("empty", "error", "invalid"):
         return True
-    if retry_on_no_data and "NO DATA" in up:
-        return True
+
+    if kind == "no_data":
+        return retry_on_no_data
+
+    if kind == "no_connect":
+        return bool(ignore_unable_to_connect)
+
     return False
 
 
 def response_is_hard_fail(lines: list[str]) -> bool:
-    """
-    'Hard fail' = no vale la pena seguir (ej. adaptador muerto).
-    Por ahora conservador.
-    """
     up = " ".join(lines).upper()
     if "DISCONNECTED" in up:
         return True
     return False
 
 
-============================================================
+========================================
 FILE: obd/legacy_kline/runtime/routing.py
-============================================================
+========================================
+
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import List, Optional
 
 from obd.elm.elm327 import ELM327
-from obd.legacy_kline.runtime.policy import KLinePolicy
+from obd.legacy_kline.profiles.base import KLineProfile
+from obd.legacy_kline.runtime.policy import KLinePolicy, policy_for_profile
+from obd.legacy_kline.runtime.quirks import (
+    QuirkSet,
+    QUIRK_RETRY_ON_NO_DATA,
+    QUIRK_IGNORE_UNABLE_TO_CONNECT,
+    classify_response,
+    is_retryable_response,
+    response_is_hard_fail,
+)
+
+
+def _sleep(s: float) -> None:
+    if s and s > 0:
+        time.sleep(s)
 
 
 def _normalize_at(cmd: str) -> str:
@@ -543,6 +1108,55 @@ def send_obd_lines(elm: ELM327, cmd: str, *, timeout_s: Optional[float] = None) 
     return elm.send_raw_lines(cmd, timeout=timeout_s)
 
 
+@dataclass(frozen=True)
+class QueryAttempt:
+    attempt: int
+    elapsed_ms: int
+    kind: str
+    lines_preview: List[str]
+
+
+@dataclass(frozen=True)
+class QueryReport:
+    cmd: str
+    attempts: List[QueryAttempt]
+
+    def summary(self) -> str:
+        if not self.attempts:
+            return "No attempts"
+        last = self.attempts[-1]
+        return f"{self.cmd}: last={last.kind} lines={last.lines_preview}"
+
+
+def _do_warmup(
+    elm: ELM327,
+    *,
+    policy: KLinePolicy,
+    quirks: QuirkSet,
+    timeout_s: float,
+) -> None:
+    """
+    Warmup probe: ayuda cuando el ECU “está dormido” o el init tarda en estabilizar.
+    """
+    if not policy.warmup_enabled:
+        return
+
+    retry_on_no_data = quirks.enabled(QUIRK_RETRY_ON_NO_DATA, default=False)
+    ignore_no_connect = quirks.enabled(QUIRK_IGNORE_UNABLE_TO_CONNECT, default=False)
+
+    for _ in range(max(1, policy.warmup_attempts)):
+        lines = send_obd_lines(elm, policy.warmup_probe, timeout_s=timeout_s)
+        if response_is_hard_fail(lines):
+            return
+        kind = classify_response(lines)
+        if kind == "ok":
+            _sleep(policy.warmup_delay_s)
+            return
+        if not is_retryable_response(lines, retry_on_no_data=retry_on_no_data, ignore_unable_to_connect=ignore_no_connect):
+            return
+        _sleep(policy.inter_request_delay_s)
+
+
 def query_with_policy(
     elm: ELM327,
     cmd: str,
@@ -551,26 +1165,420 @@ def query_with_policy(
     timeout_s: Optional[float] = None,
 ) -> List[str]:
     """
-    Query con retry básico.
+    Query con policy (retries/delays/backoff).
+    Retorna líneas crudas de la última respuesta (o la primera "ok" si aparece).
     """
     t = timeout_s if timeout_s is not None else policy.timeout_s
     last_lines: List[str] = []
 
+    # settle inicial
+    _sleep(policy.initial_settle_delay_s)
+
+    # warmup (si aplica)
+    # Nota: aquí no hay profile; se usa el policy tal cual. Si quieres warmup por profile,
+    # llama query_profile() abajo.
+    # (config/verify ya usa policy_for_profile(profile) si lo deseas)
+    # -> Dejamos warmup en query_profile().
     for attempt in range(policy.retries + 1):
-        if attempt == 0 and policy.initial_settle_delay_s > 0:
-            time.sleep(policy.initial_settle_delay_s)
-
+        start = time.monotonic()
         last_lines = send_obd_lines(elm, cmd, timeout_s=t)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        # Pequeño delay entre requests
-        if policy.inter_request_delay_s > 0:
-            time.sleep(policy.inter_request_delay_s)
-
-        # Heurística simple: si hay respuesta útil, salimos
-        up = " ".join(last_lines).upper()
-        if last_lines and ("NO DATA" not in up) and ("UNABLE TO CONNECT" not in up) and ("ERROR" not in up):
+        if response_is_hard_fail(last_lines):
             return last_lines
+
+        up_kind = classify_response(last_lines)
+
+        # Si está OK, devolvemos inmediatamente.
+        if up_kind == "ok":
+            return last_lines
+
+        # Delay entre requests
+        _sleep(policy.inter_request_delay_s)
+
+        # Backoff incremental si hay múltiples intentos
+        if policy.backoff_s > 0:
+            _sleep(policy.backoff_s * attempt)
 
     return last_lines
 
-=== END OF DUMP ===
+
+def query_profile(
+    elm: ELM327,
+    cmd: str,
+    *,
+    profile: KLineProfile,
+    base_policy: Optional[KLinePolicy] = None,
+    timeout_s: Optional[float] = None,
+) -> List[str]:
+    """
+    Query “producto”: toma profile + base_policy y aplica quirks reales (retry_on_no_data, warmup, etc.)
+    """
+    pol = policy_for_profile(profile, base=base_policy)
+    qs = QuirkSet.from_profile_dict(profile.quirks)
+    t = timeout_s if timeout_s is not None else pol.timeout_s
+
+    retry_on_no_data = qs.enabled(QUIRK_RETRY_ON_NO_DATA, default=False)
+    ignore_no_connect = qs.enabled(QUIRK_IGNORE_UNABLE_TO_CONNECT, default=False)
+
+    # settle inicial
+    _sleep(pol.initial_settle_delay_s)
+
+    # warmup probe si corresponde
+    _do_warmup(elm, policy=pol, quirks=qs, timeout_s=t)
+
+    last_lines: List[str] = []
+    for attempt in range(pol.retries + 1):
+        start = time.monotonic()
+        last_lines = send_obd_lines(elm, cmd, timeout_s=t)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+
+        if response_is_hard_fail(last_lines):
+            return last_lines
+
+        kind = classify_response(last_lines)
+
+        # éxito
+        if kind == "ok":
+            return last_lines
+
+        # ¿retry?
+        if not is_retryable_response(last_lines, retry_on_no_data=retry_on_no_data, ignore_unable_to_connect=ignore_no_connect):
+            return last_lines
+
+        # delays
+        _sleep(pol.inter_request_delay_s)
+        if pol.backoff_s > 0:
+            _sleep(pol.backoff_s * attempt)
+
+    return last_lines
+
+
+def query_profile_report(
+    elm: ELM327,
+    cmd: str,
+    *,
+    profile: KLineProfile,
+    base_policy: Optional[KLinePolicy] = None,
+    timeout_s: Optional[float] = None,
+) -> tuple[List[str], QueryReport]:
+    """
+    Igual que query_profile, pero devuelve reporte de intentos (para debug/telemetría).
+    """
+    pol = policy_for_profile(profile, base=base_policy)
+    qs = QuirkSet.from_profile_dict(profile.quirks)
+    t = timeout_s if timeout_s is not None else pol.timeout_s
+
+    retry_on_no_data = qs.enabled(QUIRK_RETRY_ON_NO_DATA, default=False)
+    ignore_no_connect = qs.enabled(QUIRK_IGNORE_UNABLE_TO_CONNECT, default=False)
+
+    attempts: List[QueryAttempt] = []
+
+    _sleep(pol.initial_settle_delay_s)
+    _do_warmup(elm, policy=pol, quirks=qs, timeout_s=t)
+
+    last_lines: List[str] = []
+    for attempt in range(pol.retries + 1):
+        start = time.monotonic()
+        last_lines = send_obd_lines(elm, cmd, timeout_s=t)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+
+        kind = classify_response(last_lines)
+        attempts.append(
+            QueryAttempt(
+                attempt=attempt,
+                elapsed_ms=elapsed_ms,
+                kind=kind,
+                lines_preview=last_lines[:3],
+            )
+        )
+
+        if response_is_hard_fail(last_lines):
+            return last_lines, QueryReport(cmd=cmd, attempts=attempts)
+
+        if kind == "ok":
+            return last_lines, QueryReport(cmd=cmd, attempts=attempts)
+
+        if not is_retryable_response(last_lines, retry_on_no_data=retry_on_no_data, ignore_unable_to_connect=ignore_no_connect):
+            return last_lines, QueryReport(cmd=cmd, attempts=attempts)
+
+        _sleep(pol.inter_request_delay_s)
+        if pol.backoff_s > 0:
+            _sleep(pol.backoff_s * attempt)
+
+    return last_lines, QueryReport(cmd=cmd, attempts=attempts)
+
+
+========================================
+FILE: obd/legacy_kline/scanner.py
+========================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Any
+
+from obd.dtc import parse_dtc_response, lookup_code, get_database
+from obd.pids.registry import get_pid_info
+from obd.pids.decode import decode_pid_response
+
+from obd.legacy_kline.session import LegacyKLineSession
+
+
+@dataclass(frozen=True)
+class KLineDTC:
+    code: str
+    description: str
+
+
+@dataclass(frozen=True)
+class KLineDTCReadResult:
+    mode: str
+    dtcs: List[KLineDTC]
+    raw_hex: str
+
+
+@dataclass(frozen=True)
+class KLinePIDResult:
+    pid: str
+    name: str
+    unit: str
+    value: Optional[float]
+    raw_hex: str
+
+
+class LegacyKLineScanner:
+    """
+    Scanner “producto” sobre LegacyKLineSession.
+
+    Reutiliza:
+    - obd/dtc: parse_dtc_response + database lookup
+    - obd/pids: registry + decode_pid_response
+
+    Implementa:
+    - read_dtcs (Mode 03/07/0A)
+    - clear_dtcs (Mode 04)
+    - read_pid (Mode 01)
+    """
+
+    def __init__(
+        self,
+        session: LegacyKLineSession,
+        *,
+        manufacturer: Optional[str] = None,
+    ):
+        self.session = session
+        self.manufacturer = manufacturer
+
+    # ---------- DTCs ----------
+
+    def read_dtcs(self, mode: str = "03") -> KLineDTCReadResult:
+        """
+        Lee DTCs:
+        - 03: stored
+        - 07: pending
+        - 0A: permanent
+        """
+        mode = (mode or "03").strip().upper()
+
+        raw_hex = self.session.query_hex(mode)
+
+        # Aseguramos que parse vea el prefijo correcto (43/47/4A)
+        expected_prefix = {"03": "43", "07": "47", "0A": "4A"}.get(mode, "43")
+        idx = raw_hex.find(expected_prefix)
+        hex_for_parse = raw_hex[idx:] if idx >= 0 else raw_hex
+
+        codes = parse_dtc_response(hex_for_parse, mode=mode)
+
+        # DB lookup (usa manufacturer si se setea)
+        if self.manufacturer:
+            db = get_database(self.manufacturer)
+            desc_fn = db.get_description
+        else:
+            desc_fn = lookup_code
+
+        dtcs = [KLineDTC(code=c, description=desc_fn(c)) for c in codes]
+        return KLineDTCReadResult(mode=mode, dtcs=dtcs, raw_hex=raw_hex)
+
+    def clear_dtcs(self) -> Tuple[bool, str]:
+        """
+        Limpia DTCs (Mode 04).
+        """
+        lines = self.session.query_lines("04")
+        up = " ".join(lines).upper()
+
+        # Algunos ECUs responden "44" (respuesta a 04), otros solo "OK"
+        hex_blob = "".join(ch for ch in up if ch in "0123456789ABCDEF")
+
+        if "DISCONNECTED" in up:
+            return False, "ELM disconnected"
+        if "ERROR" in up:
+            return False, f"ERROR: {lines[:3]}"
+        if "NO DATA" in up:
+            return False, "NO DATA"
+        if "UNABLE TO CONNECT" in up:
+            return False, "UNABLE TO CONNECT"
+
+        if "44" in hex_blob or "OK" in up:
+            return True, "OK"
+
+        # Aceptación conservadora: si no hubo error textual, puede haber sido OK
+        return True, f"OK?(weak): {lines[:3]}"
+
+    # ---------- PIDs (Mode 01) ----------
+
+    def read_pid(self, pid: str) -> KLinePIDResult:
+        """
+        Lee un PID Mode 01:
+        - pid puede venir como "0C" o "010C"
+        """
+        p = (pid or "").strip().upper()
+        if p.startswith("01") and len(p) == 4:
+            p = p[2:]
+
+        pid_info = get_pid_info(p)
+        if not pid_info:
+            # PID no registrado => devolvemos raw
+            raw_hex = self.session.query_hex(f"01{p}")
+            return KLinePIDResult(pid=p, name=f"PID {p}", unit="", value=None, raw_hex=raw_hex)
+
+        cmd = f"01{p}"
+        raw_hex = self.session.query_hex(cmd)
+
+        # Buscar respuesta "41{PID}"
+        marker = f"41{p}"
+        idx = raw_hex.find(marker)
+        if idx < 0:
+            return KLinePIDResult(
+                pid=p,
+                name=pid_info.name,
+                unit=pid_info.unit,
+                value=None,
+                raw_hex=raw_hex,
+            )
+
+        data_start = idx + len(marker)
+        # bytes esperados => 2 hex chars por byte
+        needed = pid_info.bytes * 2
+        data_hex = raw_hex[data_start : data_start + needed]
+
+        val = decode_pid_response(p, data_hex)
+        return KLinePIDResult(
+            pid=p,
+            name=pid_info.name,
+            unit=pid_info.unit,
+            value=val,
+            raw_hex=raw_hex,
+        )
+
+    def live_basic(self) -> Dict[str, KLinePIDResult]:
+        """
+        Live data mínimo que casi siempre sirve:
+        - RPM (0C)
+        - Coolant temp (05)
+        - Vehicle speed (0D)
+        - Intake air temp (0F)
+        - Throttle position (11)
+        - Control module voltage (42) (si existe)
+        """
+        pids = ["0C", "05", "0D", "0F", "11", "42"]
+        out: Dict[str, KLinePIDResult] = {}
+        for p in pids:
+            out[p] = self.read_pid(p)
+        return out
+
+
+========================================
+FILE: obd/legacy_kline/sessions.py
+========================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional, Sequence
+
+from obd.elm.elm327 import ELM327
+from obd.legacy_kline.config.detect import detect_profile_report, DetectReport
+from obd.legacy_kline.profiles.base import KLineProfile
+from obd.legacy_kline.runtime.policy import KLinePolicy
+from obd.legacy_kline.runtime.routing import query_profile
+
+
+@dataclass(frozen=True)
+class SessionInfo:
+    profile_name: str
+    family: str
+    reason: str
+
+
+class LegacyKLineSession:
+    """
+    API de sesión para que el CLI/UI no toque config/runtime directo.
+
+    Flujo típico:
+      - session = LegacyKLineSession.auto(elm, candidates=td5_candidates())
+      - scanner = LegacyKLineScanner(session)
+      - scanner.live_basic() / scanner.read_dtcs()
+    """
+
+    def __init__(
+        self,
+        elm: ELM327,
+        *,
+        profile: KLineProfile,
+        policy: Optional[KLinePolicy] = None,
+        detect_report: Optional[DetectReport] = None,
+        reason: str = "",
+    ):
+        self.elm = elm
+        self.profile = profile
+        self.policy = policy or KLinePolicy()
+        self.detect_report = detect_report
+        self.reason = reason
+
+    @classmethod
+    def auto(
+        cls,
+        elm: ELM327,
+        *,
+        candidates: Sequence[KLineProfile],
+        policy: Optional[KLinePolicy] = None,
+    ) -> "LegacyKLineSession":
+        """
+        Detecta perfil automáticamente usando detect_profile_report().
+        """
+        prof, rep = detect_profile_report(elm, list(candidates), policy=policy)
+        reason = rep.selected_reason or rep.summary()
+        return cls(elm, profile=prof, policy=policy, detect_report=rep, reason=reason)
+
+    @property
+    def info(self) -> SessionInfo:
+        return SessionInfo(
+            profile_name=self.profile.name,
+            family=self.profile.family,
+            reason=self.reason,
+        )
+
+    def query_lines(self, cmd: str) -> List[str]:
+        """
+        Ejecuta query OBD (ej: '0100', '03', '0902') con quirks/policy del profile.
+        """
+        return query_profile(self.elm, cmd, profile=self.profile, base_policy=self.policy)
+
+    def query_hex(self, cmd: str) -> str:
+        """
+        Ejecuta query_lines y devuelve hex-only concatenado (como tu send_obd()).
+        """
+        lines = self.query_lines(cmd)
+        up = " ".join(lines).upper()
+        return "".join(ch for ch in up if ch in "0123456789ABCDEF")
+
+    def close(self) -> None:
+        """
+        Conveniencia: cierra el ELM si querés que la sesión lo controle.
+        """
+        try:
+            self.elm.close()
+        except Exception:
+            pass
+
