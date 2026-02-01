@@ -1,0 +1,9 @@
+[
+  {
+    "name": "bcm",
+    "tx_id": "",
+    "rx_id": "",
+    "status": "placeholder",
+    "notes": "Populate with real CAN IDs after reverse engineering"
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "did": "F190",
+    "name": "VIN",
+    "decoder": "ascii",
+    "status": "placeholder",
+    "notes": "Generic VIN DID; confirm per ECU"
+  },
+  {
+    "did": "F18C",
+    "name": "ECU Serial",
+    "decoder": "ascii",
+    "status": "placeholder",
+    "notes": "Confirm per ECU during reverse engineering"
+  }
+]

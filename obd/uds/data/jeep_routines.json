@@ -1,0 +1,14 @@
+[
+  {
+    "name": "service_mode",
+    "routine_id": "FF00",
+    "status": "placeholder",
+    "description": "Validate routine ID per ECU before use"
+  },
+  {
+    "name": "open_calipers",
+    "routine_id": "FF01",
+    "status": "placeholder",
+    "description": "EPB/Caliper service routine; requires reverse engineering"
+  }
+]
