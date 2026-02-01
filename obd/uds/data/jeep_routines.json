@@ -1,0 +1,12 @@
+[
+  {
+    "name": "service_mode",
+    "routine_id": "FF00",
+    "description": "Placeholder for service mode; validate routine ID per ECU"
+  },
+  {
+    "name": "open_calipers",
+    "routine_id": "FF01",
+    "description": "Placeholder for EPB/Caliper service mode"
+  }
+]

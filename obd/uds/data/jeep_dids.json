@@ -1,0 +1,14 @@
+[
+  {
+    "did": "F190",
+    "name": "VIN",
+    "decoder": "ascii",
+    "notes": "Generic VIN DID (placeholder)"
+  },
+  {
+    "did": "F187",
+    "name": "Software Version",
+    "decoder": "ascii",
+    "notes": "Example DID; confirm per ECU"
+  }
+]
