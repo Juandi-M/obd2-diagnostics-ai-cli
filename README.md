@@ -1,23 +1,39 @@
-# OBD-II Scanner
+# OBD-II Diagnostics AI CLI
 
-Open source, modular vehicle diagnostic tool with interactive menu. Read trouble codes, monitor live telemetry, and analyze vehicle data from any OBD-II compliant vehicle (1996+).
+![OBD-II Diagnostics AI CLI Banner](https://img.shields.io/badge/OBD--II%20Diagnostics-AI%20CLI-0f172a?style=for-the-badge&logo=terminal&logoColor=white)
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Platform](https://img.shields.io/badge/Platform-macOS%20|%20Linux%20|%20Windows-lightgrey.svg)
+![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![OpenAI](https://img.shields.io/badge/AI-OpenAI-412991?style=flat-square&logo=openai&logoColor=white)
+![ELM327](https://img.shields.io/badge/Adapter-ELM327-0ea5e9?style=flat-square&logo=usb&logoColor=white)
+![CSV](https://img.shields.io/badge/Logs-CSV-10b981?style=flat-square&logo=files&logoColor=white)
+![JSON](https://img.shields.io/badge/Reports-JSON-f97316?style=flat-square&logo=json&logoColor=white)
+![CLI](https://img.shields.io/badge/Interface-CLI-111827?style=flat-square&logo=gnubash&logoColor=white)
+
+**Commercial-grade** diagnostics CLI for OBD-II vehicles with real-time telemetry, AI-assisted reporting, and a built-in paywall/credits flow for monetized deployments.
 
 ---
 
-## Features
+## Highlights
 
-- **Interactive Menu** — No flags to memorize, just pick from the menu
-- **Read Diagnostic Trouble Codes (DTCs)** — Stored, pending, and permanent codes
-- **Live Telemetry Monitoring** — Real-time sensor data with configurable refresh rate
-- **Freeze Frame Data** — Snapshot of sensor values when a code was triggered
-- **Readiness Monitors** — Check emission system self-test status (useful for inspections)
-- **Session Logging** — Export monitoring sessions to CSV or JSON
-- **Multi-Brand Support** — Chrysler/Jeep/Dodge, Land Rover/Jaguar code databases
-- **3,000+ DTC Definitions** — Comprehensive code database with descriptions
+- **Menu-first CLI** designed for fast technician workflows
+- **Full diagnostic scan** with stored, pending, and permanent DTCs
+- **Live telemetry** with configurable refresh rate and exportable sessions
+- **Freeze frames** captured at fault time
+- **Readiness monitors** for inspection checks
+- **AI diagnostic reports** for scan summaries and next-step guidance
+- **Credits-based monetization** with checkout redirects and usage gating
+- **Multi-manufacturer DTC databases** (Chrysler/Jeep/Dodge, Land Rover/Jaguar)
+
+---
+
+## Technology Flags
+
+- 🐍 **Python 3.8+** runtime
+- 🤖 **OpenAI** report generation (configurable model)
+- 🔌 **ELM327** adapter support over USB/Bluetooth
+- 📊 **CSV/JSON** logging and report persistence
+- 🧭 **Interactive CLI** menus and configuration
+- 💳 **Paywall** client for credits and checkout flows
 
 ---
 
@@ -25,19 +41,16 @@ Open source, modular vehicle diagnostic tool with interactive menu. Read trouble
 
 - Python 3.8+
 - ELM327 USB/Bluetooth adapter
-- OBD-II compliant vehicle (1996+ for US, 2001+ for EU)
+- OBD-II compliant vehicle (1996+ US, 2001+ EU)
 
 ---
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/obd2-scanner.git
-cd obd2-scanner
+Access to this repository is provided to licensed customers. Once access is granted:
 
-# Install dependencies
-pip install pyserial
+```bash
+pip install -r requirements.txt
 ```
 
 ---
@@ -56,11 +69,9 @@ python3 -m app --demo
 
 ## Interactive Menu
 
-Simply run `python3 -m app` to see the interactive menu:
-
 ```
   ╔════════════════════════════════════════════════════════╗
-  ║           OBD-II Scanner v2.0.0                        ║
+  ║           OBD-II Diagnostics AI CLI                   ║
   ╚════════════════════════════════════════════════════════╝
 
   Status: 🔴 Disconnected | Vehicle: Generic | Format: CSV
@@ -89,27 +100,21 @@ Simply run `python3 -m app` to see the interactive menu:
 
 ---
 
-## Settings
+## Configuration
 
-Access settings by pressing `S` in the main menu:
+### Settings Menu
 
-- **Vehicle Make** — Switch between Generic, Chrysler/Jeep/Dodge, or Land Rover/Jaguar
-- **Log Format** — Choose CSV or JSON for session logs
-- **Monitor Interval** — Adjust refresh rate for live telemetry (0.5s - 10s)
-- **View Serial Ports** — See available USB serial ports
-- **Paywall / Credits** — Configure the paywall API and checkout flow
+Open settings by pressing `S` in the main menu.
 
----
+- **Vehicle Make** — Generic, Chrysler/Jeep/Dodge, Land Rover/Jaguar
+- **Log Format** — CSV or JSON
+- **Monitor Interval** — 0.5s to 10s refresh rate
+- **View Serial Ports** — USB serial device list
+- **Paywall / Credits** — Configure API base + checkout flow
 
-## AI Reports (OpenAI)
+### AI Reports
 
-The CLI can generate AI diagnostic reports from a full scan. Reports are stored
-as JSON files under `data/reports/` and can be re-opened from the CLI.
-
-### Configuration
-
-Set your API key before running the CLI. You can export env vars directly or place
-them in a local `.env` file (see `.env.example`):
+Reports are generated from full scans and stored as JSON in `data/reports/`.
 
 ```bash
 export OPENAI_API_KEY="your-key-here"
@@ -117,22 +122,13 @@ export OPENAI_API_KEY="your-key-here"
 export OPENAI_MODEL="gpt-4o-mini"
 ```
 
----
-
-## Paywall (Credits service)
-
-The CLI integrates with a credits-based billing service (separate backend). Configure
-the API base before using paywalled actions:
+### Paywall (Credits Service)
 
 ```bash
 export PAYWALL_API_BASE="https://api.yourdomain.com"
 ```
 
-You can also set this in **Settings → Paywall / Credits**. The CLI will request
-identity, consume credits before generating reports, and open a checkout URL when
-payment is required.
-
-For local testing, you can bypass the paywall:
+For local testing, bypass paywall enforcement:
 
 ```bash
 export OBD_SUPERUSER=1
@@ -143,7 +139,7 @@ export OBD_SUPERUSER=1
 ## Project Structure
 
 ```
-obd2-scanner/
+obd2-diagnostics-ai-cli/
 ├── app/                     # Menu-first CLI implementation
 ├── requirements.txt         # Python dependencies
 ├── README.md
@@ -170,7 +166,7 @@ obd2-scanner/
 
 ---
 
-## Understanding the Output
+## Output Guide
 
 ### DTC Status Types
 
@@ -190,7 +186,7 @@ obd2-scanner/
 
 ---
 
-## Supported PIDs
+## Supported PIDs (Sample)
 
 | PID | Sensor | Unit |
 |-----|--------|------|
@@ -207,11 +203,9 @@ obd2-scanner/
 
 ---
 
-## Adding Custom Codes
+## Custom Codes
 
 DTC databases are CSV files in the `data/` folder.
-
-### Format
 
 ```csv
 # Comment lines start with #
@@ -219,11 +213,11 @@ DTC databases are CSV files in the `data/` folder.
 "P1234","Your custom code description"
 ```
 
-### Adding a New Manufacturer
+To add a new manufacturer:
 
 1. Create `data/dtc_yourmanufacturer.csv`
 2. Add the mapping in `obd/dtc.py` under `MANUFACTURER_FILES`
-3. The codes will be available in Settings → Vehicle Make
+3. Select it in **Settings → Vehicle Make**
 
 ---
 
@@ -252,7 +246,7 @@ DTC databases are CSV files in the `data/` folder.
 # macOS
 ls /dev/tty.usb*
 
-# Linux  
+# Linux
 ls /dev/ttyUSB*
 
 # Windows
@@ -261,29 +255,6 @@ ls /dev/ttyUSB*
 
 ---
 
-## Roadmap
+## Commercial Terms
 
-- [x] Basic DTC reading (Mode 03, 07, 0A)
-- [x] Live data monitoring (Mode 01)
-- [x] Freeze frame data (Mode 02)
-- [x] Readiness monitors
-- [x] Session logging (CSV/JSON)
-- [x] Multi-brand code databases
-- [x] Interactive menu interface
-- [ ] ABS/Airbag module support
-- [ ] Bi-directional controls (brake service mode, etc.)
-- [ ] GUI dashboard
-
----
-
-## License
-
-MIT License — Do whatever you want with it.
-
----
-
-## Acknowledgments
-
-- OBD-II standard: SAE J1979
-- DTC definitions: SAE J2012
-- ELM327 datasheet
+This project is maintained as a commercial product with monetization support. For licensing, pricing, or deployment assistance, contact the product owner.
