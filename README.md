@@ -46,17 +46,17 @@ pip install pyserial
 
 ```bash
 # Run interactive mode (recommended)
-python3 obd_scan.py
+python3 -m app
 
 # Or run demo mode without hardware
-python3 obd_scan.py --demo
+python3 -m app --demo
 ```
 
 ---
 
 ## Interactive Menu
 
-Simply run `python3 obd_scan.py` to see the interactive menu:
+Simply run `python3 -m app` to see the interactive menu:
 
 ```
   ╔════════════════════════════════════════════════════════╗
@@ -69,14 +69,17 @@ Simply run `python3 obd_scan.py` to see the interactive menu:
   ║  MAIN MENU                                               ║
   ╠══════════════════════════════════════════════════════════╣
   ║  1. Connect to Vehicle                                   ║
-  ║  2. Full Diagnostic Scan                                 ║
-  ║  3. Read Trouble Codes                                   ║
-  ║  4. Live Telemetry Monitor                               ║
-  ║  5. Freeze Frame Data                                    ║
-  ║  6. Readiness Monitors                                   ║
-  ║  7. Clear Codes                                          ║
-  ║  8. Lookup Code                                          ║
-  ║  9. Search Codes                                         ║
+  ║  2. Disconnect                                           ║
+  ║  3. Full Diagnostic Scan                                 ║
+  ║  4. Read Trouble Codes                                   ║
+  ║  5. Live Telemetry Monitor                               ║
+  ║  6. Freeze Frame Data                                    ║
+  ║  7. Readiness Monitors                                   ║
+  ║  8. Clear Codes                                          ║
+  ║  9. Lookup Code                                          ║
+  ║ 10. Search Codes                                         ║
+  ║ 11. UDS Tools                                            ║
+  ║ 12. AI Diagnostic Report                                 ║
   ║  S. Settings                                             ║
   ║  0. Exit                                                 ║
   ╚══════════════════════════════════════════════════════════╝
@@ -94,6 +97,37 @@ Access settings by pressing `S` in the main menu:
 - **Log Format** — Choose CSV or JSON for session logs
 - **Monitor Interval** — Adjust refresh rate for live telemetry (0.5s - 10s)
 - **View Serial Ports** — See available USB serial ports
+- **Paywall / Stripe** — Configure Stripe checkout settings
+
+---
+
+## AI Reports (OpenAI)
+
+The CLI can generate AI diagnostic reports from a full scan. Reports are stored
+as JSON files under `data/reports/` and can be re-opened from the CLI.
+
+### Configuration
+
+Set your API key before running the CLI:
+
+```bash
+export OPENAI_API_KEY="your-key-here"
+# Optional: override model (default is gpt-4o-mini)
+export OPENAI_MODEL="gpt-4o-mini"
+```
+
+---
+
+## Paywall (Stripe placeholder)
+
+The CLI includes a placeholder Stripe checkout flow under **Settings → Paywall / Stripe**.
+Configure the following environment variable and fields before starting a checkout:
+
+```bash
+export STRIPE_API_KEY="your-stripe-key"
+```
+
+Then set a Stripe price ID and success/cancel URLs inside the paywall menu.
 
 ---
 
@@ -101,15 +135,20 @@ Access settings by pressing `S` in the main menu:
 
 ```
 obd2-scanner/
-├── obd_scan.py              # Main CLI with interactive menu
+├── app/                     # Menu-first CLI implementation
 ├── requirements.txt         # Python dependencies
 ├── README.md
 ├── data/
 │   ├── dtc_generic.csv          # Generic OBD-II codes (3,000+)
 │   ├── dtc_jeep_dodge_Chrysler.csv  # Chrysler/Jeep/Dodge specific
-│   └── dtc_landrover.csv        # Land Rover/Jaguar specific
+│   ├── dtc_landrover.csv        # Land Rover/Jaguar specific
+│   ├── i18n/                    # CLI language packs
+│   ├── paywall.json             # Paywall configuration
+│   ├── reports/                 # Saved AI reports
+│   └── uds/                     # UDS DID/module/routine definitions
 ├── logs/                    # Session logs (auto-created)
 │   └── session_YYYY-MM-DD_HH-MM-SS.csv
+├── openai/                  # OpenAI and Stripe integrations
 └── obd/
     ├── __init__.py          # Package exports
     ├── elm327.py            # ELM327 adapter communication

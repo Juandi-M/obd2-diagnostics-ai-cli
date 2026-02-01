@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
+from .paths import uds_data_dir
+
+DATA_DIR = uds_data_dir()
 
 BRAND_FILES = {
     "jeep": "jeep_dids.json",
