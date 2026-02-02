@@ -4,6 +4,7 @@ from obd.obd2.base import ConnectionLostError, NotConnectedError, ScannerError
 from obd.utils import cr_timestamp
 
 from app_cli.actions.common import require_connected_scanner
+from app_core.scans import read_dtcs
 from app_cli.i18n import t
 from app_cli.state import AppState
 from app_cli.ui import handle_disconnection, print_header
@@ -18,7 +19,7 @@ def read_codes(state: AppState) -> None:
     print(f"  {t('time')}: {cr_timestamp()}\n")
 
     try:
-        dtcs = scanner.read_dtcs()
+        dtcs = read_dtcs(scanner)
         if dtcs:
             for dtc in dtcs:
                 status = f" [{dtc.status}]" if dtc.status != "stored" else ""

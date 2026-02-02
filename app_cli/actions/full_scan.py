@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from obd.utils import cr_timestamp
 
 from app_cli.actions.common import require_connected_scanner
+from app_core.scans import get_vehicle_info, read_dtcs, read_readiness, read_live_data
 from app_cli.i18n import t
 from app_cli.state import AppState
 from app_cli.reports import save_full_scan_txt
@@ -41,14 +42,14 @@ def run_full_scan(state: AppState) -> None:
 
     try:
         subheader(t("vehicle_connection"))
-        info = scanner.get_vehicle_info()
+        info = get_vehicle_info(scanner)
         emit(f"  {t('elm_version')}: {info.get('elm_version', 'unknown')}")
         emit(f"  {t('protocol')}: {info.get('protocol', 'unknown')}")
         emit(f"  {t('mil_status')}: {info.get('mil_on', 'unknown')}")
         emit(f"  {t('dtc_count')}: {info.get('dtc_count', 'unknown')}")
 
         subheader(t("dtc_header"))
-        dtcs = scanner.read_dtcs()
+        dtcs = read_dtcs(scanner)
         if dtcs:
             for dtc in dtcs:
                 emoji = "🚨" if dtc.status == "stored" else "⚠️"
@@ -61,7 +62,7 @@ def run_full_scan(state: AppState) -> None:
             emit(f"  ✅ {t('no_codes')}")
 
         subheader(t("readiness_header"))
-        readiness = scanner.read_readiness()
+        readiness = read_readiness(scanner)
         if readiness:
             complete = incomplete = 0
             for name, status in readiness.items():
@@ -80,7 +81,7 @@ def run_full_scan(state: AppState) -> None:
             emit(f"  {t('summary')}: {complete} {t('complete')}, {incomplete} {t('incomplete')}")
 
         subheader(t("live_header"))
-        readings = scanner.read_live_data()
+        readings = read_live_data(scanner)
         if readings:
             for reading in readings.values():
                 emit(f"")

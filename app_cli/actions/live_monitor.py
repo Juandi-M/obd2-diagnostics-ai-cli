@@ -8,6 +8,7 @@ from obd.obd2.base import ConnectionLostError, NotConnectedError, ScannerError
 from obd.utils import cr_timestamp, cr_time_only
 
 from app_cli.actions.common import require_connected_scanner
+from app_core.scans import read_live_data
 from app_cli.i18n import t
 from app_cli.state import AppState
 from app_cli.ui import handle_disconnection, print_header
@@ -51,7 +52,7 @@ def live_monitor(state: AppState) -> None:
         pids = ["05", "0C", "0D", "11", "49", "42"]
         while not state.stop_monitoring:
             try:
-                readings = scanner.read_live_data(pids)
+                readings = read_live_data(scanner, pids)
                 if logger:
                     logger.log_readings(readings)
 

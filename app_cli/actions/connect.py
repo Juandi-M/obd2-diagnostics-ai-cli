@@ -10,6 +10,7 @@ from obd.legacy_kline.config.errors import KLineDetectError, KLineError
 
 from app_cli.i18n import t
 from obd.bluetooth.ports import is_bluetooth_port_info
+from app_core.connection import scan_usb_ports, scan_ble_devices, try_connect
 from app_cli.state import AppState
 from app_cli.settings_store import save_settings, settings_from_state
 from app_cli.ui import print_header, handle_disconnection
@@ -42,7 +43,7 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
         state.ble_notice_shown = True
         save_settings(settings_from_state(state))
 
-    usb_ports = ELM327.find_ports() if mode != "ble" else []
+    usb_ports = scan_usb_ports() if mode != "ble" else []
     if mode == "usb" and not usb_ports:
         print(f"\n  ⚪ {t('no_usb_ports')}")
         return False
@@ -143,9 +144,9 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
         retried_ble = False
         try:
             print(f"\n  {t('trying_port', port=port)}")
-            scanner.elm.port = port
-            scanner.elm.raw_logger = state.raw_logger()
-            scanner.connect()
+            ok, info, err = try_connect(scanner, port, raw_logger=state.raw_logger())
+            if not ok:
+                raise err or ConnectionError("Connection failed")
             print(f"  ✅ {t('connected_on', port=port)}")
             is_bt = port.lower().startswith("ble:") or port in bt_ports or is_bluetooth_port_info(port, None, None)
             transport = _transport_label(port, is_bt)
@@ -157,19 +158,18 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
                 save_settings(settings_from_state(state))
             state.clear_legacy_scanner()
 
-            try:
-                info = scanner.get_vehicle_info()
+            if info:
                 print(f"\n  {t('elm_version')}: {info.get('elm_version', 'unknown')}")
                 print(f"  {t('protocol')}: {info.get('protocol', 'unknown')}")
                 mil_status = f"🔴 {t('on')}" if info.get("mil_on") == "Yes" else f"🟢 {t('off')}"
                 print(f"  {t('mil_status')}: {mil_status}")
                 print(f"  {t('dtc_count')}: {info.get('dtc_count', '?')}")
-            except ConnectionLostError:
-                handle_disconnection(state)
             return True
         except Exception as exc:
             print(f"  ❌ {t('connection_failed', error=str(exc))}")
             _print_connect_debug(state, scanner.elm, exc, port)
+            if isinstance(exc, ConnectionLostError):
+                handle_disconnection(state)
             if port.lower().startswith("ble:") and not retried_ble:
                 if "no response from vehicle ecu" in str(exc).lower():
                     retried_ble = True
@@ -180,7 +180,9 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
                         pass
                     scanner.elm.timeout = max(scanner.elm.timeout, 5.0)
                     try:
-                        scanner.connect()
+                        ok, info, err = try_connect(scanner, port, raw_logger=state.raw_logger())
+                        if not ok:
+                            raise err or ConnectionError("Connection failed")
                         print(f"  ✅ {t('connected_on', port=port)}")
                         is_bt = True
                         transport = _transport_label(port, is_bt)

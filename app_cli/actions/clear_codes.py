@@ -4,6 +4,7 @@ from obd.obd2.base import ConnectionLostError, ScannerError
 from obd.utils import cr_timestamp
 
 from app_cli.actions.common import require_connected_scanner
+from app_core.scans import clear_codes as clear_codes_core
 from app_cli.i18n import t
 from app_cli.state import AppState
 from app_cli.ui import handle_disconnection, print_header
@@ -24,7 +25,7 @@ def clear_codes(state: AppState) -> None:
     confirm = input(f"  {t('type_yes')}: ").strip().upper()
     if confirm in ["YES", "SI", "SÍ"]:
         try:
-            if scanner.clear_dtcs():
+            if clear_codes_core(scanner):
                 print(f"\n  ✅ {t('clear_success', time=cr_timestamp())}")
             else:
                 print(f"\n  ❌ {t('clear_failed')}")
