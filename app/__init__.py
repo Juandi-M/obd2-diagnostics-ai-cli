@@ -1,1 +1,1 @@
-"""CLI application package."""
+"""Reserved package for future app code."""

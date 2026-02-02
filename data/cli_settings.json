@@ -1,0 +1,20 @@
+{
+  "ble_notice_shown": true,
+  "brand_id": "0",
+  "brand_label": "Generic (all makes)",
+  "last_ble_address": "32DCECDF-8A79-7D59-AF3B-071E9CF41107",
+  "log_format": "csv",
+  "manufacturer": "generic",
+  "monitor_interval": 1.0,
+  "vehicle_group": "generic",
+  "vehicle_profiles_by_group": {
+    "jlr": {
+      "make": "Land Rover",
+      "model": null,
+      "source": "manual",
+      "trim": null,
+      "year": null
+    }
+  },
+  "verbose": true
+}

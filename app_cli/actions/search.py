@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from app.i18n import t
-from app.state import AppState
-from app.ui import print_header
+from app_cli.i18n import t
+from app_cli.state import AppState
+from app_cli.ui import print_header
 
 
 def search_codes(state: AppState) -> None:

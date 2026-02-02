@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import sys
 
-from app.env import load_dotenv
-from app.flow import run_cli
+from app_cli.env import load_dotenv
+from app_cli.flow import run_cli
 
 
 def main() -> None:

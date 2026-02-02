@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Union, Callable, List
+from dataclasses import dataclass, field
+from typing import Optional, Union, Callable, List, Dict, Any
 
 from obd import OBDScanner, DTCDatabase
 from obd.rawlog import RawLogger
@@ -20,6 +20,13 @@ class AppState:
     stop_monitoring: bool = False
     demo: bool = False
     verbose: bool = False
+    vehicle_profile: Optional[Dict[str, Any]] = None
+    last_ble_address: Optional[str] = None
+    ble_notice_shown: bool = False
+    vehicle_group: str = "generic"
+    brand_id: Optional[str] = None
+    brand_label: Optional[str] = None
+    vehicle_profiles_by_group: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def raw_logger(self) -> Optional[Callable[[str, str, List[str]], None]]:
         if not self.verbose:

@@ -16,18 +16,29 @@ def get_api_key() -> Optional[str]:
 
 
 def get_model() -> str:
-    return os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+    return os.environ.get("OPENAI_MODEL", "gpt-5.2-thinking")
 
 
-def chat_completion(messages: List[Dict[str, str]]) -> Dict[str, Any]:
+def chat_completion(
+    messages: List[Dict[str, str]],
+    *,
+    temperature: float = 0.2,
+    top_p: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
     api_key = get_api_key()
     if not api_key:
         raise OpenAIError("Missing OPENAI_API_KEY")
-    payload = {
-        "model": get_model(),
+    payload: Dict[str, Any] = {
+        "model": model or get_model(),
         "messages": messages,
-        "temperature": 0.2,
+        "temperature": temperature,
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
         data=json.dumps(payload).encode("utf-8"),

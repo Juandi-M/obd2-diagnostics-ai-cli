@@ -1,0 +1,135 @@
+{
+  "ai_report_json": {
+    "language": "en",
+    "sections": {
+      "10_timestamp": "2026-02-01T21:32:16-06:00",
+      "1_identificacion_vehiculo": "Make: Not specified; Model: Not specified; Year: Not specified; Engine: Not specified; Trim: Not specified; VIN: Not specified; Communication Protocol: SAE J1939 CAN",
+      "2_motivo_visita": "Vehicle presented for an in-depth scan with no specific symptoms reported; vehicle appears to be operating normally.",
+      "3_resultado_escaneo": "No Diagnostic Trouble Codes (DTCs) stored; Malfunction Indicator Lamp (MIL) is off; Readiness monitors mostly complete except Exhaust Gas Sensor monitor incomplete and several monitors not available (NMHC Catalyst, NOx/SCR Aftertreatment, PM Filter).",
+      "4_evidencia_datos_en_vivo": "Engine coolant temperature at 82°C, engine RPM at 660 rpm (idle), vehicle speed 0 km/h, throttle position at 0%, accelerator pedal positions at 15.29% and 7.84%, control module voltage at 14.14 V, intake manifold pressure at 91 kPa.",
+      "5_interpretacion_tecnica": "The absence of DTCs and MIL off status indicate no active faults detected by the ECU. Readiness monitors are mostly complete, supporting that the vehicle's emission-related systems have been tested recently. Live data values are within expected ranges for an idling engine, with normal coolant temperature and stable voltage supply. The incomplete Exhaust Gas Sensor monitor may indicate a recent reset or pending readiness completion.",
+      "6_causas_probables": [
+        {
+          "causa": "No current faults or malfunctions detected; vehicle operating normally.",
+          "prioridad": "Low"
+        },
+        {
+          "causa": "Incomplete Exhaust Gas Sensor monitor possibly due to recent clearing of codes or incomplete drive cycle.",
+          "prioridad": "Low"
+        }
+      ],
+      "7_pruebas_recomendadas": [
+        {
+          "criterio_confirmacion": "Exhaust Gas Sensor monitor status changes to 'Complete' after drive cycle.",
+          "descripcion": "Perform a complete drive cycle to allow all readiness monitors, especially the Exhaust Gas Sensor monitor, to complete.",
+          "paso": 1
+        },
+        {
+          "criterio_confirmacion": "No new DTCs present and MIL remains off.",
+          "descripcion": "Re-scan for DTCs and MIL status after drive cycle to confirm no new faults have appeared.",
+          "paso": 2
+        }
+      ],
+      "8_acciones_recomendadas": [],
+      "9_notas_limitaciones": "Vehicle identification data is not specified, limiting precise manufacturer-specific diagnostics. Some emission monitors are not available, possibly due to vehicle configuration or protocol limitations. Live data is limited to idle conditions; no dynamic driving data provided."
+    }
+  },
+  "ai_response": "<report>\n1) Vehicle identification\nMake: Not specified; Model: Not specified; Year: Not specified; Engine: Not specified; Trim: Not specified; VIN: Not specified; Communication Protocol: SAE J1939 CAN\n\n2) Reason for visit / reported symptoms\nVehicle presented for an in-depth scan with no specific symptoms reported; vehicle appears to be operating normally.\n\n3) Scan results (DTCs, MIL, readiness)\nNo Diagnostic Trouble Codes (DTCs) stored; Malfunction Indicator Lamp (MIL) is off; Readiness monitors mostly complete except Exhaust Gas Sensor monitor incomplete and several monitors not available (NMHC Catalyst, NOx/SCR Aftertreatment, PM Filter).\n\n4) Live data evidence\nEngine coolant temperature at 82°C, engine RPM at 660 rpm (idle), vehicle speed 0 km/h, throttle position at 0%, accelerator pedal positions at 15.29% and 7.84%, control module voltage at 14.14 V, intake manifold pressure at 91 kPa.\n\n5) Technical interpretation\nThe absence of DTCs and MIL off status indicate no active faults detected by the ECU. Readiness monitors are mostly complete, supporting that the vehicle's emission-related systems have been tested recently. Live data values are within expected ranges for an idling engine, with normal coolant temperature and stable voltage supply.",
+  "ai_response_raw": "<json>\n{\n  \"language\": \"en\",\n  \"sections\": {\n    \"1_identificacion_vehiculo\": \"Make: Not specified; Model: Not specified; Year: Not specified; Engine: Not specified; Trim: Not specified; VIN: Not specified; Communication Protocol: SAE J1939 CAN\",\n    \"2_motivo_visita\": \"Vehicle presented for an in-depth scan with no specific symptoms reported; vehicle appears to be operating normally.\",\n    \"3_resultado_escaneo\": \"No Diagnostic Trouble Codes (DTCs) stored; Malfunction Indicator Lamp (MIL) is off; Readiness monitors mostly complete except Exhaust Gas Sensor monitor incomplete and several monitors not available (NMHC Catalyst, NOx/SCR Aftertreatment, PM Filter).\",\n    \"4_evidencia_datos_en_vivo\": \"Engine coolant temperature at 82°C, engine RPM at 660 rpm (idle), vehicle speed 0 km/h, throttle position at 0%, accelerator pedal positions at 15.29% and 7.84%, control module voltage at 14.14 V, intake manifold pressure at 91 kPa.\",\n    \"5_interpretacion_tecnica\": \"The absence of DTCs and MIL off status indicate no active faults detected by the ECU. Readiness monitors are mostly complete, supporting that the vehicle's emission-related systems have been tested recently. Live data values are within expected ranges for an idling engine, with normal coolant temperature and stable voltage supply. The incomplete Exhaust Gas Sensor monitor may indicate a recent reset or pending readiness completion.\",\n    \"6_causas_probables\": [\n      {\n        \"prioridad\": \"Low\",\n        \"causa\": \"No current faults or malfunctions detected; vehicle operating normally.\"\n      },\n      {\n        \"prioridad\": \"Low\",\n        \"causa\": \"Incomplete Exhaust Gas Sensor monitor possibly due to recent clearing of codes or incomplete drive cycle.\"\n      }\n    ],\n    \"7_pruebas_recomendadas\": [\n      {\n        \"paso\": 1,\n        \"descripcion\": \"Perform a complete drive cycle to allow all readiness monitors, especially the Exhaust Gas Sensor monitor, to complete.\",\n        \"criterio_confirmacion\": \"Exhaust Gas Sensor monitor status changes to 'Complete' after drive cycle.\"\n      },\n      {\n        \"paso\": 2,\n        \"descripcion\": \"Re-scan for DTCs and MIL status after drive cycle to confirm no new faults have appeared.\",\n        \"criterio_confirmacion\": \"No new DTCs present and MIL remains off.\"\n      }\n    ],\n    \"8_acciones_recomendadas\": [],\n    \"9_notas_limitaciones\": \"Vehicle identification data is not specified, limiting precise manufacturer-specific diagnostics. Some emission monitors are not available, possibly due to vehicle configuration or protocol limitations. Live data is limited to idle conditions; no dynamic driving data provided.\",\n    \"10_timestamp\": \"2026-02-01T21:32:16-06:00\"\n  }\n}\n</json>\n<report>\n1) Vehicle identification\nMake: Not specified; Model: Not specified; Year: Not specified; Engine: Not specified; Trim: Not specified; VIN: Not specified; Communication Protocol: SAE J1939 CAN\n\n2) Reason for visit / reported symptoms\nVehicle presented for an in-depth scan with no specific symptoms reported; vehicle appears to be operating normally.\n\n3) Scan results (DTCs, MIL, readiness)\nNo Diagnostic Trouble Codes (DTCs) stored; Malfunction Indicator Lamp (MIL) is off; Readiness monitors mostly complete except Exhaust Gas Sensor monitor incomplete and several monitors not available (NMHC Catalyst, NOx/SCR Aftertreatment, PM Filter).\n\n4) Live data evidence\nEngine coolant temperature at 82°C, engine RPM at 660 rpm (idle), vehicle speed 0 km/h, throttle position at 0%, accelerator pedal positions at 15.29% and 7.84%, control module voltage at 14.14 V, intake manifold pressure at 91 kPa.\n\n5) Technical interpretation\nThe absence of DTCs and MIL off status indicate no active faults detected by the ECU. Readiness monitors are mostly complete, supporting that the vehicle's emission-related systems have been tested recently. Live data values are within expected ranges for an idling engine, with normal coolant temperature and stable voltage supply.",
+  "created_at": "2026-02-02T03:32:16.229846+00:00",
+  "customer_notes": "Car is comming for in depth scan, seem to be ok",
+  "model": "gpt-4.1-mini",
+  "report_id": "65d2c8d0",
+  "report_language": "en",
+  "scan_data": {
+    "dtcs": [],
+    "live_data": {
+      "05": {
+        "name": "Engine Coolant Temperature",
+        "unit": "°C",
+        "value": 82.0
+      },
+      "0B": {
+        "name": "Intake Manifold Pressure",
+        "unit": "kPa",
+        "value": 91.0
+      },
+      "0C": {
+        "name": "Engine RPM",
+        "unit": "rpm",
+        "value": 660.0
+      },
+      "0D": {
+        "name": "Vehicle Speed",
+        "unit": "km/h",
+        "value": 0.0
+      },
+      "11": {
+        "name": "Throttle Position",
+        "unit": "%",
+        "value": 0.0
+      },
+      "42": {
+        "name": "Control Module Voltage",
+        "unit": "V",
+        "value": 14.14
+      },
+      "49": {
+        "name": "Accelerator Pedal Position D",
+        "unit": "%",
+        "value": 15.29
+      },
+      "4A": {
+        "name": "Accelerator Pedal Position E",
+        "unit": "%",
+        "value": 7.84
+      }
+    },
+    "readiness": {
+      "Boost Pressure": {
+        "available": true,
+        "complete": true,
+        "status": "Complete"
+      },
+      "EGR/VVT System": {
+        "available": true,
+        "complete": true,
+        "status": "Complete"
+      },
+      "Exhaust Gas Sensor": {
+        "available": true,
+        "complete": false,
+        "status": "Incomplete"
+      },
+      "MIL (Check Engine Light)": {
+        "available": true,
+        "complete": true,
+        "status": "Complete"
+      },
+      "NMHC Catalyst": {
+        "available": false,
+        "complete": false,
+        "status": "N/A"
+      },
+      "NOx/SCR Aftertreatment": {
+        "available": false,
+        "complete": false,
+        "status": "N/A"
+      },
+      "PM Filter": {
+        "available": false,
+        "complete": false,
+        "status": "N/A"
+      }
+    },
+    "vehicle_info": {
+      "dtc_count": "0",
+      "elm_version": "ATZ",
+      "headers_mode": "ON",
+      "mil_on": "No",
+      "protocol": "SAE J1939 CAN",
+      "vin_raw": "49020153414C21524132424B364B2241303932353537"
+    }
+  },
+  "status": "complete"
+}

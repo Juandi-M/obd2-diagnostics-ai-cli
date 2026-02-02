@@ -6,10 +6,10 @@ from obd.uds.client import UdsClient
 from obd.uds.exceptions import UdsNegativeResponse, UdsResponseError
 from obd.uds.modules import module_map
 
-from app.actions.common import require_connected_scanner
-from app.i18n import t
-from app.state import AppState
-from app.ui import press_enter, print_header, print_menu
+from app_cli.actions.common import require_connected_scanner
+from app_cli.i18n import t
+from app_cli.state import AppState
+from app_cli.ui import press_enter, print_header, print_menu
 
 
 def _select_brand(state: AppState) -> str:

@@ -3,10 +3,10 @@ from __future__ import annotations
 from obd.obd2.base import ConnectionLostError, NotConnectedError, ScannerError
 from obd.utils import cr_timestamp
 
-from app.actions.common import require_connected_scanner
-from app.i18n import t
-from app.state import AppState
-from app.ui import handle_disconnection, print_header
+from app_cli.actions.common import require_connected_scanner
+from app_cli.i18n import t
+from app_cli.state import AppState
+from app_cli.ui import handle_disconnection, print_header
 
 
 def read_freeze_frame(state: AppState) -> None:

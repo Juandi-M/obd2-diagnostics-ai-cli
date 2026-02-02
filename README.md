@@ -46,17 +46,17 @@ pip install pyserial
 
 ```bash
 # Run interactive mode (recommended)
-python3 -m app
+python3 -m app_cli
 
 # Or run demo mode without hardware
-python3 -m app --demo
+python3 -m app_cli --demo
 ```
 
 ---
 
 ## Interactive Menu
 
-Simply run `python3 -m app` to see the interactive menu:
+Simply run `python3 -m app_cli` to see the interactive menu:
 
 ```
   ╔════════════════════════════════════════════════════════╗

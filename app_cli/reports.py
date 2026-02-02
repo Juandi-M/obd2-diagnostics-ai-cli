@@ -9,6 +9,8 @@ from uuid import uuid4
 
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "reports"
+LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
+FULL_SCAN_DIR = LOG_DIR / ".full_scan_reports"
 
 
 @dataclass
@@ -36,6 +38,43 @@ def utc_now() -> str:
 def build_report_filename(report_id: str) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"report_{timestamp}_{report_id}.json"
+
+
+def ensure_logs_dir() -> Path:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    return LOG_DIR
+
+
+def ensure_full_scan_dir() -> Path:
+    ensure_logs_dir()
+    FULL_SCAN_DIR.mkdir(parents=True, exist_ok=True)
+    return FULL_SCAN_DIR
+
+
+def build_full_scan_txt_filename(timestamp: Optional[datetime] = None) -> str:
+    stamp = (timestamp or datetime.now(timezone.utc)).astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"full_scan_{stamp}.txt"
+
+
+def full_scan_txt_path(timestamp: Optional[datetime] = None) -> Path:
+    ensure_full_scan_dir()
+    return FULL_SCAN_DIR / build_full_scan_txt_filename(timestamp=timestamp)
+
+
+def save_full_scan_txt(lines: List[str], timestamp: Optional[datetime] = None) -> Path:
+    path = full_scan_txt_path(timestamp=timestamp)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return path
+
+
+def list_full_scan_reports() -> List[Path]:
+    ensure_full_scan_dir()
+    return sorted(FULL_SCAN_DIR.glob("full_scan_*.txt"), reverse=True)
+
+
+def load_full_scan_report(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
 
 
 def save_report(payload: Dict[str, Any]) -> Path:

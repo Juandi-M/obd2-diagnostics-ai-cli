@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import webbrowser
 
-from app.i18n import t
-from app.ui import clear_screen, press_enter, print_header, print_menu
+from app_cli.i18n import t
+from app_cli.ui import clear_screen, press_enter, print_header, print_menu
 
 from .client import PaywallClient, PaywallError, PaymentRequired
 from .config import (
