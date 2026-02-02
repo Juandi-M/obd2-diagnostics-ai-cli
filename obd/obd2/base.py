@@ -56,23 +56,27 @@ class BaseScanner:
         self.elm.connect()
         connect_timeout = max(self.elm.timeout, 8.0)
 
-        # First: give auto protocol enough time to respond
-        if self.elm.test_vehicle_connection(retries=3, retry_delay_s=1.0, timeout=connect_timeout):
+        # First: give auto protocol enough time to respond (avoid spamming ECU)
+        if self.elm.test_vehicle_connection(retries=1, retry_delay_s=1.0, timeout=connect_timeout):
             self._connected = True
             return True
 
         # If auto failed, try to lock into a working protocol (safe to fail)
         try:
-            self.elm.negotiate_protocol(timeout_s=connect_timeout, retries=1, retry_delay_s=0.6)
+            self.elm.negotiate_protocol(timeout_s=connect_timeout, retries=1, retry_delay_s=1.0)
+            self._connected = True
+            return True
         except Exception:
             pass
 
-        if not self.elm.test_vehicle_connection(retries=2, retry_delay_s=1.0, timeout=connect_timeout):
-            self._connected = False
-            raise ConnectionError("No response from vehicle ECU")
+        # Final quick retry after negotiation attempt
+        if self.elm.test_vehicle_connection(retries=0, retry_delay_s=1.0, timeout=connect_timeout):
+            self._connected = True
+            return True
 
-        self._connected = True
-        return True
+        self._connected = False
+        raise ConnectionError("No response from vehicle ECU")
+
 
     def auto_connect(self) -> str:
         ports = ELM327.find_ports()

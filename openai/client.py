@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
@@ -15,7 +16,7 @@ def get_api_key() -> Optional[str]:
 
 
 def get_model() -> str:
-    return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    return os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 
 
 def chat_completion(messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -39,6 +40,21 @@ def chat_completion(messages: List[Dict[str, str]]) -> Dict[str, Any]:
     try:
         with urllib.request.urlopen(req, timeout=120) as response:
             body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8")
+        except Exception:
+            pass
+        detail = body or str(exc)
+        try:
+            data = json.loads(body) if body else {}
+            message = data.get("error", {}).get("message")
+            if message:
+                detail = message
+        except Exception:
+            pass
+        raise OpenAIError(f"HTTP {exc.code}: {detail}") from exc
     except Exception as exc:
         raise OpenAIError(str(exc)) from exc
     try:
