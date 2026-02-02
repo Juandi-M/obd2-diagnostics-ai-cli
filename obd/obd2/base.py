@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Callable
 
 from ..elm import ELM327
 from ..elm import DeviceDisconnectedError, CommunicationError
@@ -40,8 +40,13 @@ class BaseScanner:
         "7EC", "7E4", "7ED", "7E5", "7EE", "7E6", "7EF", "7E7"
     ]
 
-    def __init__(self, port: Optional[str] = None, baudrate: int = 38400):
-        self.elm = ELM327(port=port, baudrate=baudrate)
+    def __init__(
+        self,
+        port: Optional[str] = None,
+        baudrate: int = 38400,
+        raw_logger: Optional[Callable[[str, str, List[str]], None]] = None,
+    ):
+        self.elm = ELM327(port=port, baudrate=baudrate, raw_logger=raw_logger)
         self._connected = False
 
     # -----------------------------
@@ -49,14 +54,20 @@ class BaseScanner:
     # -----------------------------
     def connect(self) -> bool:
         self.elm.connect()
+        connect_timeout = max(self.elm.timeout, 8.0)
 
-        # Proactive: try to lock into a working protocol (safe to fail)
+        # First: give auto protocol enough time to respond
+        if self.elm.test_vehicle_connection(retries=3, retry_delay_s=1.0, timeout=connect_timeout):
+            self._connected = True
+            return True
+
+        # If auto failed, try to lock into a working protocol (safe to fail)
         try:
-            self.elm.negotiate_protocol()
+            self.elm.negotiate_protocol(timeout_s=connect_timeout, retries=1, retry_delay_s=0.6)
         except Exception:
             pass
 
-        if not self.elm.test_vehicle_connection():
+        if not self.elm.test_vehicle_connection(retries=2, retry_delay_s=1.0, timeout=connect_timeout):
             self._connected = False
             raise ConnectionError("No response from vehicle ECU")
 

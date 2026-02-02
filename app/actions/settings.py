@@ -17,10 +17,11 @@ def settings_menu(state: AppState) -> None:
                 ("1", f"{t('vehicle_make'):<20} [{state.manufacturer.capitalize()}]"),
                 ("2", f"{t('log_format'):<20} [{state.log_format.upper()}]"),
                 ("3", f"{t('monitor_interval'):<20} [{state.monitor_interval}s]"),
-                ("4", t("view_ports")),
-                ("5", t("view_bluetooth_ports")),
-                ("6", f"{t('language'):<20} [{get_language_name(get_language())}]"),
-                ("7", t("paywall_settings")),
+                ("4", f"{t('verbose_logging'):<20} [{t('on') if state.verbose else t('off')}]"),
+                ("5", t("view_ports")),
+                ("6", t("view_bluetooth_ports")),
+                ("7", f"{t('language'):<20} [{get_language_name(get_language())}]"),
+                ("8", t("paywall_settings")),
                 ("0", t("back")),
             ],
         )
@@ -76,6 +77,13 @@ def settings_menu(state: AppState) -> None:
                 print(f"\n  ❌ {t('invalid_number')}")
             press_enter()
         elif choice == "4":
+            state.set_verbose(not state.verbose)
+            status = t("on") if state.verbose else t("off")
+            print(f"\n  ✅ {t('set_to', value=status)}")
+            if state.verbose:
+                print(f"     {t('raw_log_file')}: logs/obd_raw.log")
+            press_enter()
+        elif choice == "5":
             print(f"\n  📡 {t('available_ports')}:\n")
             ports = ELM327.find_ports()
             if ports:
@@ -84,7 +92,7 @@ def settings_menu(state: AppState) -> None:
             else:
                 print(f"    {t('no_ports')}")
             press_enter()
-        elif choice == "5":
+        elif choice == "6":
             print(f"\n  🔵 {t('available_bluetooth_ports')}:\n")
             ports = ELM327.find_bluetooth_ports()
             if ports:
@@ -93,7 +101,7 @@ def settings_menu(state: AppState) -> None:
             else:
                 print(f"    {t('no_ports')}")
             press_enter()
-        elif choice == "6":
+        elif choice == "7":
             print(f"\n  {t('select_language')}:\n")
             for code, name in get_available_languages().items():
                 current = " ←" if code == get_language() else ""
@@ -106,7 +114,7 @@ def settings_menu(state: AppState) -> None:
             else:
                 print(f"\n  ❌ {t('invalid_number')}")
             press_enter()
-        elif choice == "7":
+        elif choice == "8":
             paywall_menu()
         elif choice == "0":
             break

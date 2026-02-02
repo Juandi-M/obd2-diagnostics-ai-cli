@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .errors import CommunicationError
 
@@ -25,20 +25,47 @@ _PROTOCOL_MAP = {
 }
 
 
-def negotiate_protocol(elm: "ELM327") -> str:
+def negotiate_protocol(
+    elm: "ELM327",
+    *,
+    timeout_s: Optional[float] = None,
+    retries: int = 1,
+    retry_delay_s: float = 0.5,
+) -> str:
     """
     Tries ATSP0 then common CAN protocols.
     Restores ATSP0 if it can't find a working one.
     """
+    use_timeout = max(elm.timeout, 2.0) if timeout_s is None else timeout_s
     candidates = ["0", "6", "7", "8", "9"]
     try:
         for p in candidates:
             elm.send_raw_lines(f"ATSP{p}", timeout=1.0)
-            time.sleep(0.05)
-            lines = elm.send_raw_lines("0100", timeout=max(elm.timeout, 2.0))
-            joined = " ".join(lines).upper().replace(" ", "")
-            if "4100" in joined:
-                return p
+            time.sleep(0.2)
+            for attempt in range(retries + 1):
+                lines = elm.send_raw_lines("0100", timeout=use_timeout)
+                joined = " ".join(lines).upper()
+                compact = joined.replace(" ", "")
+                if "4100" in compact:
+                    return p
+                if any(
+                    err in joined
+                    for err in [
+                        "SEARCHING",
+                        "BUS INIT",
+                        "NO DATA",
+                        "UNABLE TO CONNECT",
+                        "CAN ERROR",
+                        "STOPPED",
+                        "ERROR",
+                    ]
+                ):
+                    if attempt < retries:
+                        time.sleep(retry_delay_s)
+                        continue
+                    break
+                if attempt < retries:
+                    time.sleep(retry_delay_s)
     finally:
         try:
             elm.send_raw_lines("ATSP0", timeout=1.0)

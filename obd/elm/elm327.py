@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import Optional, List, Callable
 
@@ -30,6 +31,11 @@ class ELM327:
         self._is_connected = False
 
         self.raw_logger = raw_logger
+        self.last_command: Optional[str] = None
+        self.last_lines: List[str] = []
+        self.last_error: Optional[str] = None
+        self.last_duration_s: Optional[float] = None
+        self.last_raw_text: Optional[str] = None
 
         # Default headers ON for robust multi-ECU parsing
         self.headers_on = True
@@ -113,6 +119,10 @@ class ELM327:
             timeout = self.timeout
 
         try:
+            self.last_command = command
+            self.last_error = None
+            self.last_duration_s = None
+            self.last_raw_text = None
             try:
                 self.connection.reset_input_buffer()
                 self.connection.reset_output_buffer()
@@ -128,6 +138,21 @@ class ELM327:
             buf = bytearray()
             start = time.monotonic()
             last_rx = start
+            received_any = False
+            received_meaningful = False
+            prompt_seen = False
+
+            def _is_meaningful(lines: List[str]) -> bool:
+                for ln in lines:
+                    up = ln.strip().upper()
+                    if not up:
+                        continue
+                    if up.startswith("SEARCHING"):
+                        continue
+                    if up.startswith("BUS INIT") and "ERROR" not in up:
+                        continue
+                    return True
+                return False
 
             while True:
                 now = time.monotonic()
@@ -139,16 +164,38 @@ class ELM327:
                     chunk = self.connection.read(n)
                     buf.extend(chunk)
                     last_rx = now
+                    received_any = True
                     if b">" in chunk or b">" in buf:
+                        prompt_seen = True
+                    if not received_meaningful:
+                        text = buf.decode("utf-8", errors="ignore")
+                        lines = [
+                            ln.strip()
+                            for ln in text.replace(">", "").replace("\r", "\n").split("\n")
+                            if ln.strip()
+                        ]
+                        if _is_meaningful(lines):
+                            received_meaningful = True
+                    if prompt_seen and received_meaningful:
                         break
                 else:
-                    if (now - start) >= min_wait_before_silence_break and (now - last_rx) > silence_timeout:
+                    if prompt_seen and received_meaningful:
+                        break
+                    if (
+                        received_any
+                        and received_meaningful
+                        and (now - start) >= min_wait_before_silence_break
+                        and (now - last_rx) > silence_timeout
+                    ):
                         break
                     time.sleep(0.01)
 
             text = buf.decode("utf-8", errors="ignore")
             text = text.replace(">", "").replace("\r", "\n")
             lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+            self.last_lines = lines
+            self.last_raw_text = text
+            self.last_duration_s = time.monotonic() - start
 
             if self.raw_logger:
                 self.raw_logger("RX", command, lines)
@@ -157,11 +204,15 @@ class ELM327:
 
         except (OSError, serial.SerialException) as e:
             self._is_connected = False
+            self.last_error = str(e)
+            self.last_duration_s = time.monotonic() - start
             error_str = str(e).lower()
             if "device not configured" in error_str or "disconnected" in error_str:
                 raise DeviceDisconnectedError(f"Device disconnected: {e}")
             raise CommunicationError(f"Communication error: {e}")
         except Exception as e:
+            self.last_error = str(e)
+            self.last_duration_s = time.monotonic() - start
             raise CommunicationError(f"Unexpected error: {e}")
 
     def send_raw(self, command: str, timeout: Optional[float] = None) -> str:
@@ -191,14 +242,72 @@ class ELM327:
     def send_obd_lines(self, command: str) -> List[str]:
         return self.send_raw_lines(command, timeout=max(self.timeout, 2.0))
 
-    def test_vehicle_connection(self) -> bool:
-        response = self.send_obd("0100")
-        if response in ["DISCONNECTED", "ERROR", "NO CONNECT"]:
-            return False
-        return "4100" in response
+    def test_vehicle_connection(
+        self,
+        retries: int = 2,
+        retry_delay_s: float = 0.8,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        """
+        Try multiple times because some ECUs respond only after the first "SEARCHING...".
+        """
+        use_timeout = max(self.timeout, 2.0) if timeout is None else timeout
+        for attempt in range(retries + 1):
+            lines = self.send_raw_lines("0100", timeout=use_timeout)
+            joined = " ".join(lines).upper()
+            compact = joined.replace(" ", "")
 
-    def negotiate_protocol(self) -> str:
-        return _negotiate_protocol(self)
+            if "4100" in compact:
+                if self.headers_on:
+                    looks_like_header = any(
+                        re.match(r"^[0-9A-F]{3,8}\s", ln.strip().upper()) for ln in lines
+                    )
+                    if not looks_like_header:
+                        self.headers_on = False
+                        try:
+                            self.send_raw_lines("ATH0", timeout=1.0)
+                            self.send_raw_lines("ATS0", timeout=1.0)
+                        except Exception:
+                            pass
+                return True
+
+            if "SEARCHING" in joined or "BUS INIT" in joined:
+                if attempt < retries:
+                    time.sleep(retry_delay_s)
+                    continue
+                return False
+
+            if any(err in joined for err in ["NO DATA", "UNABLE TO CONNECT", "CAN ERROR", "STOPPED"]):
+                if attempt < retries:
+                    time.sleep(retry_delay_s)
+                    continue
+                return False
+
+            if not joined:
+                if attempt < retries:
+                    time.sleep(retry_delay_s)
+                    continue
+                return False
+
+            if attempt < retries:
+                time.sleep(retry_delay_s)
+                continue
+            return False
+
+        return False
+
+    def negotiate_protocol(
+        self,
+        timeout_s: Optional[float] = None,
+        retries: int = 1,
+        retry_delay_s: float = 0.5,
+    ) -> str:
+        return _negotiate_protocol(
+            self,
+            timeout_s=timeout_s,
+            retries=retries,
+            retry_delay_s=retry_delay_s,
+        )
 
     def get_protocol(self) -> str:
         return _get_protocol(self)

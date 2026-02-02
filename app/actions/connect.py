@@ -6,7 +6,7 @@ from obd.utils import cr_timestamp
 from obd.legacy_kline.adapter import LegacyKLineAdapter
 from obd.legacy_kline.session import LegacyKLineSession
 from obd.legacy_kline.profiles import ISO9141_2, KWP2000_5BAUD, KWP2000_FAST, td5_candidates
-from obd.legacy_kline.config.errors import KLineDetectError
+from obd.legacy_kline.config.errors import KLineDetectError, KLineError
 
 from app.i18n import t
 from app.state import AppState
@@ -16,6 +16,9 @@ from app.ui import print_header, handle_disconnection
 def connect_vehicle(state: AppState) -> None:
     print_header(t("connect_header"))
     print(f"  {t('time')}: {cr_timestamp()}")
+    if state.verbose:
+        print(f"  🧪 {t('verbose_logging')}: {t('on')}")
+        print(f"  {t('raw_log_file')}: logs/obd_raw.log")
 
     scanner = state.ensure_scanner()
     if state.active_scanner():
@@ -42,6 +45,7 @@ def connect_vehicle(state: AppState) -> None:
         try:
             print(f"\n  {t('trying_port', port=port)}")
             scanner.elm.port = port
+            scanner.elm.raw_logger = state.raw_logger()
             scanner.connect()
             print(f"  ✅ {t('connected_on', port=port)}")
             state.clear_legacy_scanner()
@@ -58,6 +62,7 @@ def connect_vehicle(state: AppState) -> None:
             return
         except Exception as exc:
             print(f"  ❌ {t('connection_failed', error=str(exc))}")
+            _print_connect_debug(state, scanner.elm, exc, port)
             try:
                 scanner.disconnect()
             except Exception:
@@ -81,7 +86,7 @@ def disconnect_vehicle(state: AppState) -> None:
 def _try_kline(state: AppState, port: str) -> bool:
     print(f"\n  ⚙️  {t('kline_trying')}")
     try:
-        elm = ELM327(port=port)
+        elm = ELM327(port=port, raw_logger=state.raw_logger())
         elm.connect()
     except Exception:
         return False
@@ -101,15 +106,53 @@ def _try_kline(state: AppState, port: str) -> bool:
         print(f"  {t('kline_profile')}: {info.profile_name}")
         print(f"  {t('kline_reason')}: {info.reason}")
         return True
-    except KLineDetectError:
+    except KLineDetectError as exc:
+        if state.verbose:
+            print(f"  🧾 {t('kline_error')}: {exc}")
         try:
             elm.close()
         except Exception:
             pass
         return False
-    except Exception:
+    except KLineError as exc:
+        if state.verbose:
+            print(f"  🧾 {t('kline_error')}: {exc}")
         try:
             elm.close()
         except Exception:
             pass
         return False
+    except Exception as exc:
+        if state.verbose:
+            print(f"  🧾 {t('kline_error')}: {exc}")
+        try:
+            elm.close()
+        except Exception:
+            pass
+        return False
+
+
+def _print_connect_debug(state: AppState, elm: ELM327, exc: Exception, port: str) -> None:
+    if not state.verbose:
+        return
+    print(f"  🧾 {t('debug_details')}")
+    print(f"     {t('error')}: {type(exc).__name__}: {exc}")
+    print(
+        f"     {t('port')}: {port} | {t('baudrate')}: {elm.baudrate} | "
+        f"{t('timeout')}: {elm.timeout}s"
+    )
+    if elm.elm_version:
+        print(f"     {t('elm_version')}: {elm.elm_version}")
+    if elm.protocol:
+        print(f"     {t('protocol')}: {elm.protocol}")
+    if elm.last_command:
+        print(f"     {t('last_command')}: {elm.last_command}")
+    if elm.last_lines:
+        preview = " | ".join(elm.last_lines[:4])
+        if len(elm.last_lines) > 4:
+            preview += " | ..."
+        print(f"     {t('last_response')}: {preview}")
+    if elm.last_error:
+        print(f"     {t('last_error')}: {elm.last_error}")
+    if elm.last_duration_s is not None:
+        print(f"     {t('duration')}: {elm.last_duration_s:.2f} {t('seconds')}")

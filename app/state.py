@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional, Union, Callable, List
 
 from obd import OBDScanner, DTCDatabase
+from obd.rawlog import RawLogger
 from obd.legacy_kline.adapter import LegacyKLineAdapter
 
 
@@ -18,11 +19,26 @@ class AppState:
     language: str = "en"
     stop_monitoring: bool = False
     demo: bool = False
+    verbose: bool = False
+
+    def raw_logger(self) -> Optional[Callable[[str, str, List[str]], None]]:
+        if not self.verbose:
+            return None
+        return RawLogger("logs/obd_raw.log")
+
+    def set_verbose(self, enabled: bool) -> None:
+        self.verbose = enabled
+        logger = self.raw_logger()
+        if self.scanner:
+            self.scanner.elm.raw_logger = logger
+        if self.legacy_scanner:
+            self.legacy_scanner.elm.raw_logger = logger
 
     def ensure_scanner(self) -> OBDScanner:
         if not self.scanner:
             self.scanner = OBDScanner(
-                manufacturer=self.manufacturer if self.manufacturer != "generic" else None
+                manufacturer=self.manufacturer if self.manufacturer != "generic" else None,
+                raw_logger=self.raw_logger(),
             )
         return self.scanner
 

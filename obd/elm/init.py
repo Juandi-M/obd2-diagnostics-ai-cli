@@ -49,24 +49,6 @@ def initialize_elm(elm: "ELM327") -> bool:
         except CommunicationError:
             pass
 
-        # Verify headers really work (some clones lie)
-        if elm.headers_on:
-            try:
-                lines = elm.send_raw_lines("0100", timeout=max(elm.timeout, 2.0))
-                looks_like_header = any(
-                    re.match(r"^[0-9A-F]{3,8}\s", ln.strip().upper()) for ln in lines
-                )
-                if not looks_like_header:
-                    elm.headers_on = False
-                    # IMPORTANT: keep spaces consistent with actual mode
-                    try:
-                        elm.send_raw_lines("ATH0", timeout=1.0)
-                        elm.send_raw_lines("ATS0", timeout=1.0)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
         return True
     except Exception:
         return False
