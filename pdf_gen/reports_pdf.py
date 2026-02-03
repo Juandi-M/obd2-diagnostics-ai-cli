@@ -53,6 +53,7 @@ META_LABELS = {
         "created": "Creado",
         "status": "Estado",
         "model": "Modelo",
+        "vin": "VIN",
         "not_specified": "No especificado",
         "not_available": "No disponible",
         "report_text": "Reporte (texto)",
@@ -66,6 +67,7 @@ META_LABELS = {
         "created": "Created",
         "status": "Status",
         "model": "Model",
+        "vin": "VIN",
         "not_specified": "Not specified",
         "not_available": "Not available",
         "report_text": "Report (text)",
@@ -171,9 +173,14 @@ def render_report_pdf(
     created_at = str(payload.get("created_at", ""))
     status = str(payload.get("status", ""))
     model = str(payload.get("model", ""))
+    vehicle = payload.get("vehicle") or {}
+    vin_value = ""
+    if isinstance(vehicle, dict):
+        vin_value = str(vehicle.get("vin") or "")
     meta_rows = [
         [labels["report_id"], report_id, labels["created"], created_at],
         [labels["status"], status, labels["model"], model],
+        [labels["vin"], vin_value or labels["not_available"], "", ""],
     ]
     meta_table = Table(meta_rows, colWidths=[1.1 * inch, 2.2 * inch, 0.9 * inch, 2.2 * inch])
     meta_table.setStyle(

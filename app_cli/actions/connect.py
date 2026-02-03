@@ -64,7 +64,8 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
         from obd.ble.ports import scan_ble_devices
 
         bt_devices, ble_err = scan_ble_devices(include_all=include_all)
-        bt_ports = [port for port, _ in bt_devices]
+        bt_devices = [(_port, _name, _rssi) for _port, _name, _rssi in bt_devices]
+        bt_ports = [port for port, _, _ in bt_devices]
         if ble_err == "ble_unavailable":
             print(f"\n  ❌ {t('ble_unavailable')}")
         elif ble_err == "ble_error":
@@ -73,7 +74,8 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
             retry_all = input(f"\n  {t('ble_none_found_obd_retry')} ").strip().lower()
             if retry_all in {"y", "yes", "s", "si"}:
                 bt_devices, ble_err = scan_ble_devices(include_all=True)
-                bt_ports = [port for port, _ in bt_devices]
+                bt_devices = [(_port, _name, _rssi) for _port, _name, _rssi in bt_devices]
+                bt_ports = [port for port, _, _ in bt_devices]
                 if ble_err == "ble_unavailable":
                     print(f"\n  ❌ {t('ble_unavailable')}")
                 elif ble_err == "ble_error":
@@ -83,14 +85,15 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
     if bt_devices:
         print(f"\n  🔵 {t('bluetooth_ports_found', count=len(bt_devices))}")
         print(f"  {t('ble_devices_header')}:")
-        for idx, (port, name) in enumerate(bt_devices, start=1):
+        for idx, (port, name, rssi) in enumerate(bt_devices, start=1):
             suffix = ""
             if state.last_ble_address and port.endswith(state.last_ble_address):
                 suffix = f" ({t('ble_last_used')})"
-            print(f"    {idx}. {name} [{port}]{suffix}")
+            rssi_label = f" | {rssi} dBm" if isinstance(rssi, int) and rssi > -999 else ""
+            print(f"    {idx}. {name} [{port}]{suffix}{rssi_label}")
         default_choice = ""
         if state.last_ble_address:
-            for idx, (port, _) in enumerate(bt_devices, start=1):
+            for idx, (port, _, _) in enumerate(bt_devices, start=1):
                 if port.endswith(state.last_ble_address):
                     default_choice = str(idx)
                     break
@@ -161,6 +164,12 @@ def connect_vehicle(state: AppState, *, auto: bool = False, mode: str = "auto") 
             if info:
                 print(f"\n  {t('elm_version')}: {info.get('elm_version', 'unknown')}")
                 print(f"  {t('protocol')}: {info.get('protocol', 'unknown')}")
+                vin_value = info.get("vin")
+                state.last_vin = vin_value if vin_value else None
+                if vin_value:
+                    print(f"  {t('vin_label')}: {vin_value}")
+                else:
+                    print(f"  {t('vin_label')}: {t('not_available')}")
                 mil_status = f"🔴 {t('on')}" if info.get("mil_on") == "Yes" else f"🟢 {t('off')}"
                 print(f"  {t('mil_status')}: {mil_status}")
                 print(f"  {t('dtc_count')}: {info.get('dtc_count', '?')}")

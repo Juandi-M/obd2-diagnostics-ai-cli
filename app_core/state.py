@@ -23,10 +23,15 @@ class AppState:
     vehicle_profile: Optional[Dict[str, Any]] = None
     last_ble_address: Optional[str] = None
     ble_notice_shown: bool = False
+    last_seen_at: Optional[float] = None
+    last_seen_rssi: Optional[int] = None
+    last_seen_device: Optional[str] = None
+    last_vin: Optional[str] = None
     vehicle_group: str = "generic"
     brand_id: Optional[str] = None
     brand_label: Optional[str] = None
     vehicle_profiles_by_group: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    session_results: List[Dict[str, Any]] = field(default_factory=list)
 
     def raw_logger(self) -> Optional[Callable[[str, str, List[str]], None]]:
         if not self.verbose:

@@ -29,17 +29,8 @@ def run_cli(demo: bool = False) -> None:
         run_demo(state)
         return
     select_language(state)
-    if not start_session():
-        return
-    while True:
-        session_setup(state)
-        from app_cli.actions.connect import connect_vehicle
-        if connection_flow(state, connect_vehicle):
-            main_menu(state)
-            break
-        retry = input(f"\n  {t('session_retry_prompt')} ").strip().lower()
-        if retry not in {"y", "yes", "s", "si"}:
-            break
+    session_setup(state)
+    main_menu(state)
 
 
 def select_language(state: AppState) -> None:

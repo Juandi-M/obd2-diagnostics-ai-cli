@@ -6,6 +6,7 @@ import threading
 import time
 import webbrowser
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from obd.obd2.base import ConnectionLostError, NotConnectedError, ScannerError
@@ -15,10 +16,10 @@ from app_cli.actions.scan_report import collect_scan_report
 from app_cli.i18n import t
 from openai.client import OpenAIError, get_api_key, get_model
 from app_core.ai_report import decode_vin_with_ai as core_decode_vin_with_ai
+from app_core.ai_report import decode_vin_with_vpic as core_decode_vin_with_vpic
 from app_core.ai_report import request_ai_report as core_request_ai_report
 from app_cli.vin_cache import get_vin_cache, set_vin_cache
-from app_cli.reports import find_report_by_id, list_reports, save_report
-from pdf_gen.paths import report_pdf_path
+from app_cli.reports import find_report_by_id, list_reports, load_report, save_report
 from pdf_gen.reports_pdf import render_report_pdf
 from app_cli.state import AppState
 from app_cli.ui import press_enter, print_header, print_menu
@@ -32,24 +33,12 @@ def ai_report_menu(state: AppState) -> None:
             t("ai_report_menu"),
             [
                 ("1", t("ai_report_new")),
-                ("2", t("ai_report_list")),
-                ("3", t("ai_report_view")),
-                ("4", t("ai_report_export_pdf")),
                 ("0", t("back")),
             ],
         )
         choice = input(f"\n  {t('select_option')}: ").strip()
         if choice == "1":
             run_ai_report(state)
-            press_enter()
-        elif choice == "2":
-            show_reports()
-            press_enter()
-        elif choice == "3":
-            view_report()
-            press_enter()
-        elif choice == "4":
-            export_report_pdf()
             press_enter()
         elif choice == "0":
             break
@@ -99,6 +88,7 @@ def run_ai_report(state: AppState) -> None:
     print(f"\n  ✅ {t('ai_report_saved', path=str(report_path))}")
 
     vehicle_payload, vehicle_profiles = prepare_vehicle_profile(scan_payload, state)
+    _update_report_vehicle(report_path, vehicle_payload, vehicle_profiles)
 
     print(f"  {t('ai_report_wait')}")
 
@@ -146,7 +136,16 @@ def run_ai_report(state: AppState) -> None:
         model=get_model(),
     )
     print(f"\n  ✅ {t('ai_report_complete')}")
-    print_report_summary(report_text or response)
+    vin_value = vehicle_payload.get("vin") if isinstance(vehicle_payload, dict) else None
+    if vin_value:
+        print(f"\n  {t('vin_label')}: {vin_value}")
+    print_report_full(report_text or response)
+    _export_ai_pdf_to_documents(
+        report_path,
+        report_json=report_json,
+        report_text=report_text or response,
+        language=report_language,
+    )
 
 
 def _ensure_report_credit(client: Optional[PaywallClient]) -> bool:
@@ -239,7 +238,8 @@ def export_report_pdf() -> None:
         report_language = report_json.get("language")
     if not report_language:
         report_language = payload.get("report_language")
-    output_path = report_pdf_path(report_id)
+    vehicle_payload = payload.get("vehicle") or {}
+    output_path = _documents_pdf_path(vehicle_payload)
     try:
         render_report_pdf(
             payload,
@@ -415,6 +415,10 @@ def decode_vin_with_ai(vin: str, state: AppState) -> Optional[Dict[str, Any]]:
     return core_decode_vin_with_ai(vin, state.manufacturer)
 
 
+def decode_vin_with_vpic(vin: str, state: AppState, model_year: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    return core_decode_vin_with_vpic(vin, model_year=model_year)
+
+
 def prepare_vehicle_profile(
     scan_payload: Dict[str, Any],
     state: AppState,
@@ -433,15 +437,30 @@ def prepare_vehicle_profile(
             vin_source = "vin_cache"
         else:
             vin_attempted = True
-            print(f"\n  {t('vin_decode_start')}")
+            model_year = user_profile.get("year") or vehicle_info.get("year")
+            print(f"\n  {t('vin_decode_vpic_start')}")
             try:
-                vin_profile = decode_vin_with_ai(vin, state)
+                vin_profile = decode_vin_with_vpic(vin, state, model_year=model_year)
                 if vin_profile:
                     set_vin_cache(vin, vin_profile)
-                    vin_source = "vin_ai"
-            except OpenAIError as exc:
-                print(f"  ❌ {t('vin_decode_failed')}: {exc}")
+                    vin_source = "vin_vpic"
+            except Exception:
                 vin_profile = None
+
+            if not vin_profile:
+                print(f"  ❌ {t('vin_decode_vpic_failed')}")
+                if not get_api_key():
+                    print(f"  ❌ {t('vin_decode_missing_key')}")
+                else:
+                    print(f"  {t('vin_decode_start')}")
+                    try:
+                        vin_profile = decode_vin_with_ai(vin, state)
+                        if vin_profile:
+                            set_vin_cache(vin, vin_profile)
+                            vin_source = "vin_ai"
+                    except OpenAIError as exc:
+                        print(f"  ❌ {t('vin_decode_failed')}: {exc}")
+                        vin_profile = None
     else:
         print(f"\n  {t('vin_decode_no_vin')}")
         if not user_profile:
@@ -538,13 +557,60 @@ def update_report_status(
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def print_report_summary(response: str) -> None:
+def print_report_full(response: str) -> None:
     print("\n" + "-" * 60)
-    lines = response.strip().splitlines()
-    for line in lines[:20]:
+    print("  AI REPORT")
+    print("-" * 60)
+    for line in response.strip().splitlines():
         print(f"  {line}")
-    if len(lines) > 20:
-        print(f"  ... {t('report_more')}")
+
+
+def _sanitize_filename(value: Optional[str]) -> str:
+    if not value:
+        return "Unknown"
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", str(value)).strip("_")
+    return cleaned or "Unknown"
+
+
+def _documents_pdf_path(vehicle_payload: Dict[str, Any]) -> Path:
+    docs = Path.home() / "Documents" / "OBDIIAI"
+    docs.mkdir(parents=True, exist_ok=True)
+    make = _sanitize_filename(vehicle_payload.get("make"))
+    model = _sanitize_filename(vehicle_payload.get("model"))
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    filename = f"Report_{make}_{model}_{stamp}.pdf"
+    return docs / filename
+
+
+def _update_report_vehicle(path: Path, vehicle_payload: Dict[str, Any], vehicle_profiles: Dict[str, Any]) -> None:
+    payload = load_report(path)
+    payload["vehicle"] = vehicle_payload
+    payload["vehicle_profiles"] = vehicle_profiles
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _export_ai_pdf_to_documents(
+    report_path: Path,
+    *,
+    report_json: Optional[Dict[str, Any]],
+    report_text: str,
+    language: str,
+) -> None:
+    payload = load_report(report_path)
+    vehicle_payload = payload.get("vehicle") or {}
+    output_path = _documents_pdf_path(vehicle_payload)
+    try:
+        render_report_pdf(
+            payload,
+            output_path,
+            report_json=report_json,
+            report_text=report_text,
+            language=language,
+        )
+    except RuntimeError as exc:
+        print(f"\n  ❌ {t('ai_report_pdf_error')}: {exc}")
+        return
+    print(f"\n  ✅ {t('ai_report_pdf_saved', path=str(output_path))}")
 
 
 class Spinner:

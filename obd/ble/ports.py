@@ -148,7 +148,7 @@ def find_ble_ports() -> List[str]:
         return []
 
 
-def scan_ble_devices(include_all: bool = False) -> Tuple[List[Tuple[str, str]], Optional[str]]:
+def scan_ble_devices(include_all: bool = False) -> Tuple[List[Tuple[str, str, int]], Optional[str]]:
     try:
         from bleak import BleakScanner
     except Exception:
@@ -184,7 +184,7 @@ def scan_ble_devices(include_all: bool = False) -> Tuple[List[Tuple[str, str]], 
         "0000fff0-0000-1000-8000-00805f9b34fb",
     }
 
-    async def _scan() -> List[Tuple[str, str]]:
+    async def _scan() -> List[Tuple[str, str, int]]:
         try:
             try:
                 result = await BleakScanner.discover(
@@ -229,7 +229,7 @@ def scan_ble_devices(include_all: bool = False) -> Tuple[List[Tuple[str, str]], 
                 devices.append((rssi, addr, name))
 
         devices.sort(key=lambda x: x[0], reverse=True)
-        return [(addr, name) for _, addr, name in devices], None
+        return [(addr, name, rssi) for rssi, addr, name in devices], None
 
     try:
         return _run(_scan())

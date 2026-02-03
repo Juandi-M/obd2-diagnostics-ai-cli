@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
+import urllib.request
 from typing import Any, Dict, Optional
 
 from openai.client import chat_completion
@@ -55,6 +57,63 @@ def decode_vin_with_ai(vin: str, manufacturer: str) -> Optional[Dict[str, Any]]:
             except json.JSONDecodeError:
                 return None
         return None
+
+
+def decode_vin_with_vpic(vin: str, model_year: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    clean_vin = (vin or "").strip().upper()
+    if not clean_vin:
+        return None
+
+    params = {"format": "json"}
+    if model_year:
+        params["modelyear"] = str(model_year)
+    query = urllib.parse.urlencode(params)
+    url = (
+        "https://vpic.nhtsa.dot.gov/api/vehicles/"
+        f"DecodeVinValuesExtended/{urllib.parse.quote(clean_vin)}?{query}"
+    )
+
+    try:
+        with urllib.request.urlopen(url, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    results = payload.get("Results") or []
+    if not results:
+        return None
+    row = results[0] if isinstance(results, list) else {}
+
+    def pick(*keys: str) -> str:
+        for key in keys:
+            value = row.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text or text.lower() in {"not applicable", "not available", "0"}:
+                continue
+            return text
+        return ""
+
+    make = pick("Make")
+    model = pick("Model")
+    year = pick("ModelYear")
+    trim = pick("Trim", "Series", "Series2")
+    engine = pick("DisplacementL", "EngineModel", "EngineConfiguration")
+
+    if not any([make, model, year, trim, engine]):
+        return None
+
+    confidence = "high" if make and model and year else "medium"
+    return {
+        "make": make,
+        "model": model,
+        "year": year,
+        "trim": trim,
+        "engine": engine,
+        "confidence": confidence,
+        "notes": "source=vpic",
+    }
 
 
 def request_ai_report(report_input: Dict[str, Any], language: str) -> str:

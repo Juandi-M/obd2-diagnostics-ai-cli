@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app_cli.reports import DATA_DIR, ensure_reports_dir
+from app_core.reports import DATA_DIR, ensure_reports_dir
 
 
 def build_report_pdf_filename(report_id: str) -> str:

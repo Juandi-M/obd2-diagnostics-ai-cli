@@ -42,8 +42,11 @@ def print_status(state: AppState) -> None:
     conn_status = f"🟢 {t('connected')}" if connected else f"🔴 {t('disconnected')}"
     mfr = state.manufacturer.capitalize()
     lang = get_language().upper()
+    vin_label = ""
+    if state.last_vin:
+        vin_label = f" | {t('vin_label')}: {state.last_vin}"
     print(
-        f"\n  {t('status')}: {conn_status} | {t('vehicle')}: {mfr} | "
+        f"\n  {t('status')}: {conn_status} | {t('vehicle')}: {mfr}{vin_label} | "
         f"{t('format')}: {state.log_format.upper()} | {t('protocol')}: {protocol} | {lang}"
     )
 

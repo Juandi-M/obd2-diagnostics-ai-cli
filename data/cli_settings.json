@@ -8,12 +8,19 @@
   "monitor_interval": 1.0,
   "vehicle_group": "generic",
   "vehicle_profiles_by_group": {
-    "jlr": {
-      "make": "Land Rover",
+    "chrysler": {
+      "make": "Jeep",
       "model": null,
       "source": "manual",
       "trim": null,
       "year": null
+    },
+    "jlr": {
+      "make": "Land Rover",
+      "model": "Discovery",
+      "source": "manual",
+      "trim": "HSE",
+      "year": "2019"
     }
   },
   "verbose": true
