@@ -1,35 +1,23 @@
 """
-OBD-II Scanner Utilities
-========================
-Shared utilities, constants, and timezone handling.
+OBD-II Scanner Utilities (compat shim).
 """
 
-from datetime import datetime, timezone, timedelta
+from app.application.time_utils import (
+    APP_NAME,
+    CR_TZ,
+    VERSION,
+    cr_now,
+    cr_time_only,
+    cr_timestamp,
+    cr_timestamp_filename,
+)
 
-# Costa Rica timezone (UTC-6)
-CR_TZ = timezone(timedelta(hours=-6))
-
-
-def cr_now() -> datetime:
-    """Get current time in Costa Rica timezone."""
-    return datetime.now(CR_TZ)
-
-
-def cr_timestamp() -> str:
-    """Get formatted timestamp string."""
-    return cr_now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def cr_timestamp_filename() -> str:
-    """Get timestamp suitable for filenames."""
-    return cr_now().strftime("%Y-%m-%d_%H-%M-%S")
-
-
-def cr_time_only() -> str:
-    """Get time only (HH:MM:SS)."""
-    return cr_now().strftime("%H:%M:%S")
-
-
-# Version info
-VERSION = "2.0.0"
-APP_NAME = "OBD-II Scanner"
+__all__ = [
+    "CR_TZ",
+    "VERSION",
+    "APP_NAME",
+    "cr_now",
+    "cr_timestamp",
+    "cr_timestamp_filename",
+    "cr_time_only",
+]

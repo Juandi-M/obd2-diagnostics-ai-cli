@@ -1,229 +1,379 @@
-# OBD-II Scanner
+# OBD-II Diagnostics AI CLI
 
-Open source, modular vehicle diagnostic tool with interactive menu. Read trouble codes, monitor live telemetry, and analyze vehicle data from any OBD-II compliant vehicle (1996+).
+![OBD-II Diagnostics AI CLI Banner](https://img.shields.io/badge/OBD--II%20Diagnostics-AI%20CLI-0f172a?style=for-the-badge&logo=terminal&logoColor=white)
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Platform](https://img.shields.io/badge/Platform-macOS%20|%20Linux%20|%20Windows-lightgrey.svg)
+![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![OpenAI](https://img.shields.io/badge/AI-OpenAI-412991?style=flat-square&logo=openai&logoColor=white)
+![ELM327](https://img.shields.io/badge/Adapter-ELM327-0ea5e9?style=flat-square&logo=usb&logoColor=white)
+![CSV](https://img.shields.io/badge/Logs-CSV-10b981?style=flat-square&logo=files&logoColor=white)
+![JSON](https://img.shields.io/badge/Reports-JSON-f97316?style=flat-square&logo=json&logoColor=white)
+![CLI](https://img.shields.io/badge/Interface-CLI-111827?style=flat-square&logo=gnubash&logoColor=white)
 
----
-
-## Features
-
-- **Interactive Menu** — No flags to memorize, just pick from the menu
-- **Read Diagnostic Trouble Codes (DTCs)** — Stored, pending, and permanent codes
-- **Live Telemetry Monitoring** — Real-time sensor data with configurable refresh rate
-- **Freeze Frame Data** — Snapshot of sensor values when a code was triggered
-- **Readiness Monitors** — Check emission system self-test status (useful for inspections)
-- **Session Logging** — Export monitoring sessions to CSV or JSON
-- **Multi-Brand Support** — Chrysler/Jeep/Dodge, Land Rover/Jaguar code databases
-- **3,000+ DTC Definitions** — Comprehensive code database with descriptions
+**Commercial-grade** diagnostics CLI for OBD-II vehicles with real-time telemetry, AI-assisted reporting, and a built-in paywall/credits flow for monetized deployments.
 
 ---
 
-## Requirements
+## Commercial Notice
 
-- Python 3.8+
-- ELM327 USB/Bluetooth adapter
-- OBD-II compliant vehicle (1996+ for US, 2001+ for EU)
+This is a **commercial application**. Source is provided for licensed or internal use. It is **not** offered as open source. If you need a commercial license, contact the project owner.
 
 ---
 
-## Installation
+## Table of Contents
+
+- [What This App Does](#what-this-app-does)
+- [Technical Specs](#technical-specs)
+  - [Adapters and Transports](#adapters-and-transports)
+  - [Communication Lines and Buses](#communication-lines-and-buses)
+  - [Supported Protocols](#supported-protocols)
+- [Features (By Area)](#features-by-area)
+- [How to Run](#how-to-run)
+  - [Install](#install)
+  - [CLI](#cli)
+  - [GUI (Qt)](#gui-qt)
+  - [Demo Mode](#demo-mode)
+- [Environment (.env)](#environment-env)
+- [Testing](#testing)
+- [Output Locations](#output-locations)
+- [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
+---
+
+## What This App Does
+
+This application is a full OBD-II diagnostic workflow in a clean-architecture codebase:
+
+- Connect to an OBD-II adapter and identify the vehicle interface.
+- Read and decode diagnostic trouble codes (stored, pending, permanent).
+- Run a full diagnostic scan and summarize results.
+- View readiness monitor state for emissions systems.
+- Stream live data (RPM, speed, coolant temp, etc.).
+- Capture freeze frame snapshots.
+- Perform UDS discovery and related tooling on supported ECUs.
+- Generate AI diagnostic reports from scan results.
+- Store logs and reports locally for later review.
+
+It ships with a CLI (primary) and a Qt GUI (work in progress but functional).
+
+---
+
+## Technical Specs
+
+### Adapters and Transports
+
+The app communicates through **ELM327-compatible adapters** that expose a serial interface. Common options:
+
+- **USB ELM327** (recommended for stability and throughput)
+- **Bluetooth (SPP)** adapters that appear as a serial port
+- **Other serial bridges** that present a `/dev/tty*` / COM port
+
+The software expects a serial-style ELM-compatible interface and uses AT commands to configure protocol and headers.
+
+### Communication Lines and Buses
+
+Different vehicles expose different physical OBD-II buses. This app supports the common ones via the adapter:
+
+- **CAN (ISO 15765-4)** - two-wire differential bus (CAN-H / CAN-L)
+- **K-Line (legacy protocol)** - single-wire line used on older vehicles
+- **L-Line** - optional wake-up line (rarely required, older platforms)
+- **J1850 VPW/PWM** - older GM/Ford buses (adapter-dependent)
+
+### Supported Protocols
+
+The app targets standard OBD-II and common UDS workflows:
+
+- **OBD-II modes** (e.g., Mode 01, 02, 03, 07, 0A)
+- **ISO 15765-4 (CAN)** for modern vehicles
+- **ISO 9141-2 / KWP2000 (K-Line)** fallback on older vehicles
+- **UDS (ISO 14229)** tooling where supported by the ECU
+
+Protocol selection is handled by the adapter and the infrastructure layer, with explicit K-Line support when available.
+
+---
+
+## Features (By Area)
+
+### Connection and Vehicle Detection
+
+- Detect available serial ports
+- Connect/disconnect with clear status feedback
+- Choose manufacturer context (Generic, Chrysler/Jeep/Dodge, Land Rover/Jaguar)
+
+### Diagnostic Trouble Codes (DTCs)
+
+- Read **stored**, **pending**, and **permanent** codes
+- Decode DTCs using built-in databases (multi-brand)
+- Lookup and search codes by ID or text
+
+### Full Diagnostic Scan
+
+- One-command scan across supported systems
+- Summarized output with timing and counts
+- Saves scan output for AI reports and review
+
+### Live Telemetry
+
+- Real-time PID streaming
+- Configurable refresh rate
+- Optional session logging
+
+### Freeze Frame
+
+- Capture snapshot data recorded at fault time
+
+### Readiness Monitors
+
+- Visual status of emissions-related monitors
+- Useful for inspection readiness
+
+### UDS Tools
+
+- UDS module discovery
+- ECU metadata and capability probing
+
+### AI Diagnostic Reports
+
+- Generate structured AI summaries from scans
+- Reports stored locally as JSON
+
+### Logging & Reports
+
+- Logs saved under `logs/`
+- AI reports saved under `data/reports/`
+
+---
+
+## How to Run
+
+### Install
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/obd2-scanner.git
-cd obd2-scanner
+# (Use your internal or licensed source repository)
+
+git clone <repo-url>
+cd obd2-diagnostics-ai-cli
+
+# Optional: create a venv
+python3 -m venv .venv
+source .venv/bin/activate
 
 # Install dependencies
-pip install pyserial
+pip install -r requirements.txt
 ```
 
----
-
-## Quick Start
+### CLI
 
 ```bash
-# Run interactive mode (recommended)
+# Interactive CLI
 python3 -m app_cli
 
-# Or run demo mode without hardware
+# Help
+python3 -m app_cli --help
+```
+
+### GUI (Qt)
+
+```bash
+python3 -m app_gui
+```
+
+### Demo Mode
+
+```bash
+# Run without hardware
 python3 -m app_cli --demo
 ```
 
 ---
 
-## Interactive Menu
+## Environment (.env)
 
-Simply run `python3 -m app_cli` to see the interactive menu:
+Configuration is handled via environment variables or a local `.env` file (see `.env.example`). Keep this file out of source control.
 
+At a high level, the `.env` contains:
+
+- Service endpoints (AI reporting backend, billing/credits, optional gateways)
+- API keys and secrets for integrations
+- Runtime toggles for diagnostics/logging
+- Development overrides (demo mode, superuser bypass, etc.)
+
+---
+
+## Testing
+
+This repo uses `unittest` and a set of focused suites. Tests are intentionally offline and deterministic unless noted.
+
+### 1) Application + Domain unit tests (pure logic)
+
+What they cover:
+- State transitions, settings load/save, vehicle brand selection
+- i18n translation behavior
+- AI report helpers (language detect, JSON extraction, report status updates)
+- Use case orchestration (connection, scans, reports, UDS tools)
+
+Where:
+- `tests/test_application_state.py`
+- `tests/test_application_settings.py`
+- `tests/test_application_vehicle.py`
+- `tests/test_application_i18n.py`
+- `tests/test_application_ai_report.py`
+- `tests/test_application_paywall.py`
+- `tests/test_application_services.py`
+
+Run:
+```bash
+python3 -m unittest -v \
+  tests.test_application_state \
+  tests.test_application_settings \
+  tests.test_application_vehicle \
+  tests.test_application_i18n \
+  tests.test_application_ai_report \
+  tests.test_application_paywall \
+  tests.test_application_services
 ```
-  ╔════════════════════════════════════════════════════════╗
-  ║           OBD-II Scanner v2.0.0                        ║
-  ╚════════════════════════════════════════════════════════╝
 
-  Status: 🔴 Disconnected | Vehicle: Generic | Format: CSV
+### 2) Infrastructure adapter tests (mocked I/O)
 
-  ╔══════════════════════════════════════════════════════════╗
-  ║  MAIN MENU                                               ║
-  ╠══════════════════════════════════════════════════════════╣
-  ║  1. Connect to Vehicle                                   ║
-  ║  2. Disconnect                                           ║
-  ║  3. Full Diagnostic Scan                                 ║
-  ║  4. Read Trouble Codes                                   ║
-  ║  5. Live Telemetry Monitor                               ║
-  ║  6. Freeze Frame Data                                    ║
-  ║  7. Readiness Monitors                                   ║
-  ║  8. Clear Codes                                          ║
-  ║  9. Lookup Code                                          ║
-  ║ 10. Search Codes                                         ║
-  ║ 11. UDS Tools                                            ║
-  ║ 12. AI Diagnostic Report                                 ║
-  ║  S. Settings                                             ║
-  ║  0. Exit                                                 ║
-  ╚══════════════════════════════════════════════════════════╝
+What they cover:
+- AI adapter error mapping and request plumbing
+- Paywall adapter error mapping and bypass logic
+- Persistence adapters (settings, VIN cache, reports)
+- Reporting adapters (PDF path, renderer delegation)
+- i18n repository load
 
-  Select option: _
+Where:
+- `tests/test_infra_ai_adapters.py`
+- `tests/test_infra_ai_report.py`
+- `tests/test_infra_paywall_adapter.py`
+- `tests/test_infra_persistence_settings.py`
+- `tests/test_infra_persistence_vin_cache.py`
+- `tests/test_infra_persistence_reports.py`
+- `tests/test_infra_persistence_document_paths.py`
+- `tests/test_infra_reporting_pdf_paths.py`
+- `tests/test_infra_reporting_pdf_renderer.py`
+- `tests/test_infra_i18n_repository.py`
+
+Run:
+```bash
+python3 -m unittest -v \
+  tests.test_infra_ai_adapters \
+  tests.test_infra_ai_report \
+  tests.test_infra_paywall_adapter \
+  tests.test_infra_persistence_settings \
+  tests.test_infra_persistence_vin_cache \
+  tests.test_infra_persistence_reports \
+  tests.test_infra_persistence_document_paths \
+  tests.test_infra_reporting_pdf_paths \
+  tests.test_infra_reporting_pdf_renderer \
+  tests.test_infra_i18n_repository
+```
+
+### 3) Presentation smoke + cancellation tests (CLI/Qt)
+
+What they cover:
+- CLI help flag
+- CLI smoke flow (connect, full scan, report, export PDF) with fakes
+- CLI live monitor cancel path
+- Qt live monitor start/stop (skips if PySide6 unavailable)
+
+Where:
+- `tests/test_cli_smoke.py`
+- `tests/test_cancellation.py`
+
+Run:
+```bash
+python3 -m unittest -v tests.test_cli_smoke tests.test_cancellation
+```
+
+### 4) Resilience and failure mode tests
+
+What they cover:
+- NO DATA retry behavior
+- Partial frame handling
+- Timeout mapping to scanner errors
+- Disconnect mid-scan handling and state cleanup
+
+Where:
+- `tests/test_failure_modes.py`
+
+Run:
+```bash
+python3 -m unittest -v tests.test_failure_modes
+```
+
+### 5) Replay-based protocol tests (OBD/UDS)
+
+What they cover:
+- Deterministic scan results using captured ELM/OBD transcripts
+- UDS discovery and DID decoding from recorded sessions
+
+Where:
+- `tests/replay_transport.py` (replay transport)
+- `tests/test_replay_obd.py`
+- `tests/test_replay_uds.py`
+- `tests/fixtures/replay/` (fixtures)
+- `tools/replay_fixture_builder.py` (build fixtures from logs)
+
+Run (fixtures required):
+```bash
+python3 -m unittest -v tests.test_replay_obd tests.test_replay_uds
+```
+
+Build a fixture from a raw log:
+```bash
+python3 tools/replay_fixture_builder.py \
+  --input logs/obd_raw.log \
+  --output tests/fixtures/replay/obd_scan.json
+```
+
+### 6) Schema + contract tests
+
+What they cover:
+- Scan report JSON shape stays consistent
+- Adapter classes expose required methods
+
+Where:
+- `tests/test_scan_report_schema.py`
+- `tests/test_ports_contracts.py`
+
+Run:
+```bash
+python3 -m unittest -v tests.test_scan_report_schema tests.test_ports_contracts
 ```
 
 ---
 
-## Settings
+## Output Locations
 
-Access settings by pressing `S` in the main menu:
+Runtime output is written to:
 
-- **Vehicle Make** — Switch between Generic, Chrysler/Jeep/Dodge, or Land Rover/Jaguar
-- **Log Format** — Choose CSV or JSON for session logs
-- **Monitor Interval** — Adjust refresh rate for live telemetry (0.5s - 10s)
-- **View Serial Ports** — See available USB serial ports
-- **Paywall / Credits** — Configure the paywall API and checkout flow
+- `logs/` - session logs and raw adapter logs
+- `data/reports/` - AI diagnostic reports (JSON)
 
----
-
-## AI Reports (OpenAI)
-
-The CLI can generate AI diagnostic reports from a full scan. Reports are stored
-as JSON files under `data/reports/` and can be re-opened from the CLI.
-
-### Configuration
-
-Set your API key before running the CLI. You can export env vars directly or place
-them in a local `.env` file (see `.env.example`):
-
-```bash
-export OPENAI_API_KEY="your-key-here"
-# Optional: override model (default is gpt-4o-mini)
-export OPENAI_MODEL="gpt-4o-mini"
-```
-
----
-
-## Paywall (Credits service)
-
-The CLI integrates with a credits-based billing service (separate backend). Configure
-the API base before using paywalled actions:
-
-```bash
-export PAYWALL_API_BASE="https://api.yourdomain.com"
-```
-
-You can also set this in **Settings → Paywall / Credits**. The CLI will request
-identity, consume credits before generating reports, and open a checkout URL when
-payment is required.
-
-For local testing, you can bypass the paywall:
-
-```bash
-export OBD_SUPERUSER=1
-```
+These directories are auto-created at runtime.
 
 ---
 
 ## Project Structure
 
 ```
-obd2-scanner/
-├── app/                     # Menu-first CLI implementation
-├── requirements.txt         # Python dependencies
-├── README.md
-├── data/
-│   ├── dtc_generic.csv          # Generic OBD-II codes (3,000+)
-│   ├── dtc_jeep_dodge_chrysler.csv  # Chrysler/Jeep/Dodge specific
-│   ├── dtc_land_rover.csv       # Land Rover/Jaguar specific
-│   ├── i18n/                    # CLI language packs
-│   ├── reports/                 # Saved AI reports
-│   └── uds/                     # UDS DID/module/routine definitions
-├── logs/                    # Session logs (auto-created)
-│   └── session_YYYY-MM-DD_HH-MM-SS.csv
-├── openai/                  # OpenAI integrations
-├── paywall/                 # Paywall client, config, and CLI menu
-└── obd/
-    ├── __init__.py          # Package exports
-    ├── elm/elm327.py        # ELM327 adapter communication
-    ├── obd2/scanner.py      # High-level scanner interface
-    ├── dtc/database.py      # DTC decoding and database lookup
-    ├── pids/standard_mode01.py  # OBD-II PID definitions
-    ├── logger.py            # Session logging (CSV/JSON)
-    └── utils.py             # Shared utilities
+obd2-diagnostics-ai-cli/
+|-- app/                     # Clean architecture layers
+|   |-- domain
+|   |-- application
+|   |-- infrastructure
+|   `-- presentation
+|-- app_cli/                 # CLI entrypoint (thin wrapper)
+|-- app_gui/                 # Qt entrypoint (thin wrapper)
+|-- data/                    # Static data (DTC, UDS, i18n)
+|-- logs/                    # Runtime logs (auto-created)
+|-- obd/                     # OBD protocol library
+|-- requirements.txt
+`-- tools/
 ```
-
----
-
-## Understanding the Output
-
-### DTC Status Types
-
-| Status | Icon | Meaning |
-|--------|------|---------|
-| **Stored** | 🚨 | Confirmed fault, Check Engine light is ON |
-| **Pending** | ⚠️ | Fault detected once, ECU is monitoring |
-| **Permanent** | ⚠️ | Cannot be cleared manually, requires repair + drive cycles |
-
-### Readiness Monitors
-
-| Status | Icon | Meaning |
-|--------|------|---------|
-| **Complete** | ✅ | Self-test has run and passed |
-| **Incomplete** | ❌ | Self-test has not run yet |
-| **N/A** | ➖ | Not supported by this vehicle |
-
----
-
-## Supported PIDs
-
-| PID | Sensor | Unit |
-|-----|--------|------|
-| 05 | Engine Coolant Temperature | °C |
-| 0C | Engine RPM | rpm |
-| 0D | Vehicle Speed | km/h |
-| 11 | Throttle Position | % |
-| 42 | Control Module Voltage | V |
-| 0B | Intake Manifold Pressure | kPa |
-| 06 | Short Term Fuel Trim | % |
-| 07 | Long Term Fuel Trim | % |
-| 49 | Accelerator Pedal Position D | % |
-| 4A | Accelerator Pedal Position E | % |
-
----
-
-## Adding Custom Codes
-
-DTC databases are CSV files in the `data/` folder.
-
-### Format
-
-```csv
-# Comment lines start with #
-"CODE","Description"
-"P1234","Your custom code description"
-```
-
-### Adding a New Manufacturer
-
-1. Create `data/dtc_yourmanufacturer.csv`
-2. Add the mapping in `obd/dtc.py` under `MANUFACTURER_FILES`
-3. The codes will be available in Settings → Vehicle Make
 
 ---
 
@@ -232,8 +382,8 @@ DTC databases are CSV files in the `data/` folder.
 ### "No USB serial ports found"
 
 - Check USB connection
-- Verify adapter is plugged into vehicle OBD port
-- On macOS, check System Preferences → Security for permission
+- Verify adapter is plugged into the vehicle OBD port
+- On macOS, check System Settings -> Security for permission
 
 ### "No response from vehicle ECU"
 
@@ -252,38 +402,15 @@ DTC databases are CSV files in the `data/` folder.
 # macOS
 ls /dev/tty.usb*
 
-# Linux  
+# Linux
 ls /dev/ttyUSB*
 
 # Windows
-# Check Device Manager → Ports (COM & LPT)
+# Check Device Manager -> Ports (COM & LPT)
 ```
-
----
-
-## Roadmap
-
-- [x] Basic DTC reading (Mode 03, 07, 0A)
-- [x] Live data monitoring (Mode 01)
-- [x] Freeze frame data (Mode 02)
-- [x] Readiness monitors
-- [x] Session logging (CSV/JSON)
-- [x] Multi-brand code databases
-- [x] Interactive menu interface
-- [ ] ABS/Airbag module support
-- [ ] Bi-directional controls (brake service mode, etc.)
-- [ ] GUI dashboard
 
 ---
 
 ## License
 
-MIT License — Do whatever you want with it.
-
----
-
-## Acknowledgments
-
-- OBD-II standard: SAE J1979
-- DTC definitions: SAE J2012
-- ELM327 datasheet
+Commercial / proprietary. All rights reserved. This repository is provided under a commercial license agreement.

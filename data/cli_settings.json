@@ -1,12 +1,12 @@
 {
   "ble_notice_shown": true,
-  "brand_id": "0",
-  "brand_label": "Generic (all makes)",
+  "brand_id": "1",
+  "brand_label": "Land Rover",
   "last_ble_address": "32DCECDF-8A79-7D59-AF3B-071E9CF41107",
   "log_format": "csv",
-  "manufacturer": "generic",
+  "manufacturer": "landrover",
   "monitor_interval": 1.0,
-  "vehicle_group": "generic",
+  "vehicle_group": "jlr",
   "vehicle_profiles_by_group": {
     "chrysler": {
       "make": "Jeep",
