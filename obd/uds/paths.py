@@ -1,9 +1,5 @@
-from pathlib import Path
+from app.infrastructure.persistence.data_paths import data_dir
 
 
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def uds_data_dir() -> Path:
-    return project_root() / "data" / "uds"
+def uds_data_dir():
+    return data_dir() / "uds"

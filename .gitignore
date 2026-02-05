@@ -61,6 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Runtime artifacts
+logs/
+data/reports/*.json
+
 # Flask stuff:
 instance/
 .webassets-cache
@@ -222,4 +226,8 @@ Icon\r\r
 Network Trash Folder/
 Temporary Items/
 .apdisk
+
+# Project
 .env.example
+# Local caches
+data/vin_cache.json

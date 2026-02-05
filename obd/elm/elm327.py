@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Any
 
 import serial
 
@@ -25,7 +25,7 @@ class ELM327:
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
-        self.connection: Optional[serial.Serial] = None
+        self.connection: Optional[Any] = None
         self.protocol: Optional[str] = None
         self.elm_version: Optional[str] = None
         self._is_connected = False
@@ -59,7 +59,14 @@ class ELM327:
     def find_bluetooth_ports() -> List[str]:
         from obd.bluetooth.ports import find_bluetooth_ports
 
-        return find_bluetooth_ports()
+        ports = list(find_bluetooth_ports())
+        try:
+            from obd.ble.ports import find_ble_ports
+
+            ports.extend(p for p in find_ble_ports() if p not in ports)
+        except Exception:
+            pass
+        return ports
 
     def connect(self) -> bool:
         if not self.port:
@@ -69,15 +76,18 @@ class ELM327:
             self.port = ports[0]
 
         try:
-            self.connection = serial.Serial(
-                port=self.port,
-                baudrate=self.baudrate,
-                timeout=self.timeout,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-            )
-            time.sleep(0.2)
+            if str(self.port).lower().startswith("ble:"):
+                self._connect_ble(str(self.port)[4:])
+            else:
+                self.connection = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baudrate,
+                    timeout=self.timeout,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                )
+                time.sleep(0.2)
 
             if not initialize_elm(self):
                 self._is_connected = False
@@ -89,6 +99,9 @@ class ELM327:
         except serial.SerialException as e:
             self._is_connected = False
             raise ConnectionError(f"Serial port error: {e}")
+        except Exception as e:
+            self._is_connected = False
+            raise ConnectionError(f"Connection error: {e}")
 
     def _check_connection(self) -> None:
         if not self.connection:
@@ -101,6 +114,17 @@ class ELM327:
         except (OSError, serial.SerialException) as e:
             self._is_connected = False
             raise DeviceDisconnectedError(f"Device disconnected: {e}")
+        except Exception as e:
+            self._is_connected = False
+            raise DeviceDisconnectedError(f"Device disconnected: {e}")
+
+    def _connect_ble(self, address: str) -> None:
+        try:
+            from obd.ble.ble_serial import BleSerial
+        except Exception as exc:
+            raise ConnectionError("BLE support requires the 'bleak' package.") from exc
+        self.connection = BleSerial(address, timeout=self.timeout)
+        self.connection.open()
 
     def send_raw_lines(
         self,

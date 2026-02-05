@@ -38,6 +38,7 @@ def negotiate_protocol(
     """
     use_timeout = max(elm.timeout, 2.0) if timeout_s is None else timeout_s
     candidates = ["0", "6", "7", "8", "9"]
+    found = False
     try:
         for p in candidates:
             elm.send_raw_lines(f"ATSP{p}", timeout=1.0)
@@ -47,6 +48,7 @@ def negotiate_protocol(
                 joined = " ".join(lines).upper()
                 compact = joined.replace(" ", "")
                 if "4100" in compact:
+                    found = True
                     return p
                 if any(
                     err in joined
@@ -67,10 +69,11 @@ def negotiate_protocol(
                 if attempt < retries:
                     time.sleep(retry_delay_s)
     finally:
-        try:
-            elm.send_raw_lines("ATSP0", timeout=1.0)
-        except Exception:
-            pass
+        if not found:
+            try:
+                elm.send_raw_lines("ATSP0", timeout=1.0)
+            except Exception:
+                pass
 
     raise CommunicationError("Protocol negotiation failed (0100 did not respond)")
 

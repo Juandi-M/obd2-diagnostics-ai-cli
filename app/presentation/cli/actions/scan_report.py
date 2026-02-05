@@ -1,0 +1,1 @@
+from app.application.scan_report import collect_scan_report

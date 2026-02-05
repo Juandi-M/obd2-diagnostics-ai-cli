@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from .utils import cr_now, cr_timestamp, cr_timestamp_filename
+from app.infrastructure.persistence.data_paths import logs_dir
 
 
 class SessionLogger:
@@ -29,8 +30,9 @@ class SessionLogger:
         logger.end_session()
     """
     
-    def __init__(self, log_dir: str = "logs"):
-        self.log_dir = Path(log_dir)
+    def __init__(self, log_dir: Optional[str] = None):
+        base_dir = Path(log_dir) if log_dir else logs_dir()
+        self.log_dir = Path(base_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
         self.session_file: Optional[Path] = None
@@ -299,7 +301,7 @@ class QuickLog:
             log.log_readings(readings)
     """
     
-    def __init__(self, log_dir: str = "logs", format: str = "csv"):
+    def __init__(self, log_dir: Optional[str] = None, format: str = "csv"):
         self.logger = SessionLogger(log_dir)
         self.format = format
     
